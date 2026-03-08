@@ -235,21 +235,30 @@ struct ChatView: View {
                 .clipShape(Circle())
                 .shadow(color: AppTheme.accent.opacity(0.25), radius: 16, y: 4)
 
-            Text("Think")
+            Text(RemoteConfigService.shared.cached?.ui.thinkEmptyStateTitle ?? "Think")
                 .font(.system(size: 20, weight: .bold))
                 .foregroundColor(.white)
 
-            Text("Your thinking space before you send.\nAsk for help with any message.")
+            Text({
+                let t = RemoteConfigService.shared.cached?.ui.thinkEmptyStateSubtitle
+                return (t?.isEmpty == false ? t : nil) ?? "Your thinking space before you send.\nAsk for help with any message."
+            }())
                 .font(.system(size: 14))
                 .foregroundColor(AppTheme.subtext)
                 .multilineTextAlignment(.center)
                 .lineSpacing(3)
 
-            // Quick prompts
+            // Quick prompts (dynamic from control panel)
             VStack(spacing: 8) {
-                quickPrompt("How should I respond to this?")
-                quickPrompt("Make this message more polite")
-                quickPrompt("Help me say no professionally")
+                let configPrompts = RemoteConfigService.shared.cached?.ui.quickPrompts
+                let prompts = (configPrompts?.isEmpty == false ? configPrompts : nil) ?? [
+                    "How should I respond to this?",
+                    "Make this message more polite",
+                    "Help me say no professionally"
+                ]
+                ForEach(prompts, id: \.self) { prompt in
+                    quickPrompt(prompt)
+                }
             }
             .padding(.top, 8)
 

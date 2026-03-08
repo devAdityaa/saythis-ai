@@ -23,6 +23,7 @@ enum GlobalConfig {
 struct PersuadeKeyboardApp: App {
     init() {
         GlobalConfig.seedKeyToAppGroup()
+        RemoteConfigService.shared.fetchConfig()
     }
 
     var body: some Scene {

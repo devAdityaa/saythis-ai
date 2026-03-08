@@ -32,6 +32,9 @@ private struct ResponsesRequest: Encodable {
     let model: String
     let instructions: String
     let input: [InputMessage]
+    var temperature: Double?
+    var top_p: Double?
+    var max_output_tokens: Int?
 }
 
 private struct InputMessage: Encodable {
@@ -96,8 +99,10 @@ final class ChatAPIService {
 
     private let endpoint = URL(string: "https://api.openai.com/v1/responses")!
 
-    // ─── System Prompt ───
-    static let systemPrompt = """
+    // ─── System Prompt fallback (used when remote config unavailable) ───
+    static var systemPrompt: String { defaultSystemPrompt }
+
+    private static let defaultSystemPrompt = """
 You are **SayThis**, an AI messaging assistant that helps users communicate clearly, confidently, and effectively in any conversation.
 
 You exist to operate seamlessly wherever the user is communicating — text messages, DMs, emails, or chats — and to deliver **immediate, high-quality, ready-to-send responses** with zero friction.
@@ -256,10 +261,10 @@ You are here to **help the user say the right thing**.
 YOUR Output must be beautifully formatted
 """
 
-    // MARK: - Split-mode instruction (appended to system prompt when splitMode = true)
-    // The AI is told to wrap its response in [CONTEXT] / [REPLY] markers so the
-    // client can split the output into two separate bubbles.
-    static let splitModeInstruction = """
+    // MARK: - Split-mode instruction fallback
+    static var splitModeInstruction: String { defaultSplitModeInstruction }
+
+    private static let defaultSplitModeInstruction = """
 
 
 ---
@@ -318,61 +323,84 @@ Rules:
             return
         }
 
-        // Build input array from conversation history
-        let input: [InputMessage] = messages.map { msg in
-            if msg.attachments.isEmpty {
-                return InputMessage(role: msg.role.rawValue, content: .text(msg.content))
+        // Fetch fresh config before every API call
+        SayThisLog.api("sendMessage() called — fetching config…")
+        RemoteConfigService.shared.fetchConfig { [weak self] config in
+            guard let self else { return }
+
+            let rc = config?.thinkChat
+
+            if let rc {
+                SayThisLog.api("✅ Using REMOTE config for Think/Chat")
+                SayThisLog.api("  model=\(rc.model)  temp=\(rc.temperature)  topP=\(rc.topP)  maxTokens=\(rc.maxTokens)")
+                SayThisLog.api("  systemPrompt preview: \(SayThisLog.preview(rc.systemPrompt))")
+                if splitMode {
+                    SayThisLog.api("  splitModeInstruction preview: \(SayThisLog.preview(rc.splitModeInstruction))")
+                }
             } else {
-                var parts: [ContentPart] = []
-                if !msg.content.isEmpty {
-                    parts.append(ContentPart(type: "input_text", text: msg.content, image_url: nil))
-                }
-                for att in msg.attachments where att.type == .image {
-                    parts.append(ContentPart(
-                        type: "input_image",
-                        text: nil,
-                        image_url: "data:\(att.mimeType);base64,\(att.base64Data)"
-                    ))
-                }
-                // Documents: send as text context
-                for att in msg.attachments where att.type == .document {
-                    parts.append(ContentPart(
-                        type: "input_text",
-                        text: "[Attached document: \(att.fileName)]",
-                        image_url: nil
-                    ))
-                }
-                if parts.isEmpty {
-                    return InputMessage(role: msg.role.rawValue, content: .text(msg.content))
-                }
-                return InputMessage(role: msg.role.rawValue, content: .parts(parts))
+                SayThisLog.warn("Config unavailable — Think/Chat using HARDCODED fallback defaults")
+                SayThisLog.warn("  model=gpt-4.1-mini (default)  temp=nil  topP=nil  maxTokens=nil")
             }
+
+            // Build input array from conversation history
+            let input: [InputMessage] = messages.map { msg in
+                if msg.attachments.isEmpty {
+                    return InputMessage(role: msg.role.rawValue, content: .text(msg.content))
+                } else {
+                    var parts: [ContentPart] = []
+                    if !msg.content.isEmpty {
+                        parts.append(ContentPart(type: "input_text", text: msg.content, image_url: nil))
+                    }
+                    for att in msg.attachments where att.type == .image {
+                        parts.append(ContentPart(
+                            type: "input_image",
+                            text: nil,
+                            image_url: "data:\(att.mimeType);base64,\(att.base64Data)"
+                        ))
+                    }
+                    // Documents: send as text context
+                    for att in msg.attachments where att.type == .document {
+                        parts.append(ContentPart(
+                            type: "input_text",
+                            text: "[Attached document: \(att.fileName)]",
+                            image_url: nil
+                        ))
+                    }
+                    if parts.isEmpty {
+                        return InputMessage(role: msg.role.rawValue, content: .text(msg.content))
+                    }
+                    return InputMessage(role: msg.role.rawValue, content: .parts(parts))
+                }
+            }
+
+            let sysPrompt = rc?.systemPrompt ?? Self.defaultSystemPrompt
+            let splitInstr = rc?.splitModeInstruction ?? Self.defaultSplitModeInstruction
+            let instructions = splitMode ? sysPrompt + splitInstr : sysPrompt
+
+            var body = ResponsesRequest(
+                model: rc?.model ?? "gpt-4.1-mini",
+                instructions: instructions,
+                input: input
+            )
+            body.temperature = rc?.temperature
+            body.top_p = rc?.topP
+            body.max_output_tokens = rc?.maxTokens
+
+            var request = URLRequest(url: self.endpoint)
+            request.httpMethod = "POST"
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+            request.timeoutInterval = 60
+
+            do {
+                request.httpBody = try JSONEncoder().encode(body)
+            } catch {
+                DispatchQueue.main.async { completion(.failure(ChatAPIError.invalidResponse)) }
+                return
+            }
+
+            self.performRequest(request, attempt: 0, completion: completion)
         }
-
-        let instructions = splitMode
-            ? Self.systemPrompt + Self.splitModeInstruction
-            : Self.systemPrompt
-
-        let body = ResponsesRequest(
-            model: "gpt-4.1-mini",
-            instructions: instructions,
-            input: input
-        )
-
-        var request = URLRequest(url: endpoint)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
-        request.timeoutInterval = 60
-
-        do {
-            request.httpBody = try JSONEncoder().encode(body)
-        } catch {
-            completion(.failure(ChatAPIError.invalidResponse))
-            return
-        }
-
-        performRequest(request, attempt: 0, completion: completion)
     }
 
     /// Performs the URL request with automatic retry for transient network errors.
@@ -381,12 +409,14 @@ Rules:
         attempt: Int,
         completion: @escaping (Result<String, Error>) -> Void
     ) {
+        SayThisLog.api("OpenAI Responses API call — attempt \(attempt + 1)")
         URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
             guard let self else { return }
 
             // Retry on transient network errors
             if let error, self.isRetryableError(error), attempt < self.maxRetries {
                 let delay = self.retryDelay * Double(attempt + 1)
+                SayThisLog.warn("Retryable error on attempt \(attempt + 1): \(error.localizedDescription) — retrying in \(delay)s")
                 DispatchQueue.global().asyncAfter(deadline: .now() + delay) {
                     self.performRequest(request, attempt: attempt + 1, completion: completion)
                 }
@@ -394,20 +424,25 @@ Rules:
             }
 
             if let error {
+                SayThisLog.error("Think/Chat final network error: \(error.localizedDescription)")
                 DispatchQueue.main.async { completion(.failure(ChatAPIError.network(error))) }
                 return
             }
 
             guard let data, let httpResponse = response as? HTTPURLResponse else {
+                SayThisLog.error("Think/Chat no data or non-HTTP response")
                 DispatchQueue.main.async { completion(.failure(ChatAPIError.invalidResponse)) }
                 return
             }
+
+            SayThisLog.api("OpenAI response HTTP \(httpResponse.statusCode), body size: \(data.count) bytes")
 
             // Try parsing response
             if let apiResp = try? JSONDecoder().decode(ResponsesAPIResponse.self, from: data) {
                 // Check for API error
                 if let apiError = apiResp.error {
                     let msg = apiError.message ?? "Unknown API error"
+                    SayThisLog.error("OpenAI API error: \(msg)")
                     DispatchQueue.main.async {
                         completion(.failure(ChatAPIError.httpError(httpResponse.statusCode, msg)))
                     }
@@ -420,14 +455,20 @@ Rules:
                    let content = firstMessage.content,
                    let textContent = content.first(where: { $0.type == "output_text" }),
                    let text = textContent.text {
+                    SayThisLog.api("✅ Think/Chat success — response length: \(text.count) chars")
                     DispatchQueue.main.async { completion(.success(text)) }
                     return
                 }
+
+                SayThisLog.warn("Parsed ResponsesAPIResponse but found no output_text. Output items: \(apiResp.output?.count ?? 0)")
+            } else {
+                SayThisLog.warn("Could not decode ResponsesAPIResponse — raw body: \((String(data: data, encoding: .utf8) ?? "unreadable").prefix(300))")
             }
 
             // If status code is not 2xx
             if httpResponse.statusCode < 200 || httpResponse.statusCode >= 300 {
                 let body = String(data: data, encoding: .utf8) ?? "No response body"
+                SayThisLog.error("Think/Chat HTTP error \(httpResponse.statusCode): \(body.prefix(200))")
                 DispatchQueue.main.async {
                     completion(.failure(ChatAPIError.httpError(httpResponse.statusCode, body)))
                 }
@@ -436,10 +477,12 @@ Rules:
 
             // Fallback: try raw text
             if let raw = String(data: data, encoding: .utf8), !raw.isEmpty {
+                SayThisLog.warn("Using raw text fallback for Think/Chat response")
                 DispatchQueue.main.async { completion(.success(raw)) }
                 return
             }
 
+            SayThisLog.error("Think/Chat: no usable response body")
             DispatchQueue.main.async { completion(.failure(ChatAPIError.invalidResponse)) }
         }.resume()
     }

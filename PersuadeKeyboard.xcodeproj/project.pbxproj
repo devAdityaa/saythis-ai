@@ -512,7 +512,7 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.goatedx.saythis.keyboard;
+				PRODUCT_BUNDLE_IDENTIFIER = persuade.PersuadeApp;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
@@ -628,7 +628,7 @@
 				CODE_SIGN_ENTITLEMENTS = PersuadeKeyboardExtension/PersuadeKeyboardExtension.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = HVN8326NS2;
+				DEVELOPMENT_TEAM = 525XTU9TF9;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = PersuadeKeyboardExtension/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = SayThis;
@@ -639,7 +639,7 @@
 					"@executable_path/../../Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = persuade.PersuadeKeyboard.PersuadeKeyboardExtension;
+				PRODUCT_BUNDLE_IDENTIFIER = persuade.PersuadeApp.keyboard;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
 				SWIFT_EMIT_LOC_STRINGS = YES;

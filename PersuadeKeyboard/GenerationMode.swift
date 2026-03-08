@@ -28,14 +28,18 @@ struct GenerationMode: Identifiable, Codable, Equatable {
 
 extension GenerationMode {
 
+    // Fallback prompts (used when remote config is unavailable)
+    static let fallbackReplyPrompt = "You are a reply suggestion assistant for any conversation. The user will provide a message they received. Generate exactly 3 short, natural reply suggestions. Each reply should take a different angle — vary the tone and approach. Return ONLY a valid JSON array of exactly 3 strings with no other text, no labels, no explanations. Example format: [\"Reply one.\", \"Reply two.\", \"Reply three.\"]"
+
+    static let fallbackRefinePrompt = "You are a message improvement assistant. The user will provide a message they have drafted. Generate exactly 3 improved versions of their message — each clearer, more professional, and impactful while preserving the core intent and meaning. Vary the approach slightly across the 3 versions. Return ONLY a valid JSON array of exactly 3 strings with no other text, no labels, no explanations. Example format: [\"Improved version one.\", \"Improved version two.\", \"Improved version three.\"]"
+
     static var defaultReply: GenerationMode {
-        GenerationMode(
+        let rc = RemoteConfigService.shared.cached?.keyboard.builtInModes.reply
+        return GenerationMode(
             id: UUID(uuidString: "00000000-0000-0000-0000-000000000001")!,
-            name: "Reply",
-            icon: "arrowshape.turn.up.left.fill",
-            baseSystemPrompt: """
-You are a reply suggestion assistant for any conversation. The user will provide a message they received. Generate exactly 3 short, natural reply suggestions. Each reply should take a different angle — vary the tone and approach. Return ONLY a valid JSON array of exactly 3 strings with no other text, no labels, no explanations. Example format: ["Reply one.", "Reply two.", "Reply three."]
-""",
+            name: rc?.name ?? "Reply",
+            icon: rc?.icon ?? "arrowshape.turn.up.left.fill",
+            baseSystemPrompt: rc?.systemPrompt ?? fallbackReplyPrompt,
             userInstructions: "",
             inputSource: .clipboard,
             isBuiltIn: true
@@ -43,13 +47,12 @@ You are a reply suggestion assistant for any conversation. The user will provide
     }
 
     static var defaultRefine: GenerationMode {
-        GenerationMode(
+        let rc = RemoteConfigService.shared.cached?.keyboard.builtInModes.refine
+        return GenerationMode(
             id: UUID(uuidString: "00000000-0000-0000-0000-000000000002")!,
-            name: "Refine",
-            icon: "sparkle.magnifyingglass",
-            baseSystemPrompt: """
-You are a message improvement assistant. The user will provide a message they have drafted. Generate exactly 3 improved versions of their message — each clearer, more professional, and impactful while preserving the core intent and meaning. Vary the approach slightly across the 3 versions. Return ONLY a valid JSON array of exactly 3 strings with no other text, no labels, no explanations. Example format: ["Improved version one.", "Improved version two.", "Improved version three."]
-""",
+            name: rc?.name ?? "Refine",
+            icon: rc?.icon ?? "sparkle.magnifyingglass",
+            baseSystemPrompt: rc?.systemPrompt ?? fallbackRefinePrompt,
             userInstructions: "",
             inputSource: .textField,
             isBuiltIn: true

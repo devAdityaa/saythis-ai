@@ -27,11 +27,35 @@ enum ResponseChannel: String, CaseIterable, Identifiable {
         }
     }
 
-    // MARK: Channel-specific system prompts
-    var systemPrompt: String {
+    // MARK: Channel-specific system prompts (uses live config, falls back to defaults)
+    func systemPrompt(from config: RemoteConfig?) -> String {
+        let channels = config?.screenshotReply.channels
         switch self {
         case .linkedin:
-            return """
+            return channels?.linkedin.systemPrompt ?? Self.defaultLinkedInPrompt
+        case .whatsapp:
+            return channels?.whatsapp.systemPrompt ?? Self.defaultWhatsAppPrompt
+        case .email:
+            return channels?.email.systemPrompt ?? Self.defaultEmailPrompt
+        }
+    }
+
+    // User-facing prompt injected alongside the screenshot (uses live config, falls back to defaults)
+    func userPrompt(from config: RemoteConfig?) -> String {
+        let channels = config?.screenshotReply.channels
+        switch self {
+        case .linkedin:
+            return channels?.linkedin.userPrompt ?? "Analyze this LinkedIn conversation screenshot and generate a professional, context-aware reply. Output only the message text."
+        case .whatsapp:
+            return channels?.whatsapp.userPrompt ?? "Analyze this WhatsApp conversation screenshot and generate a natural, appropriate reply. Output only the message text."
+        case .email:
+            return channels?.email.userPrompt ?? "Analyze this email screenshot and generate a professional email reply. Output only the complete email reply text."
+        }
+    }
+
+    // MARK: - Default prompts (fallbacks when remote config unavailable)
+
+    private static let defaultLinkedInPrompt = """
             You are a **LinkedIn Reply & Message Assistant** designed to generate professional, polished, and context-aware LinkedIn messages.
             ### **Core Responsibilities**
             1. **Generate LinkedIn messages and replies** for all common use cases, including:
@@ -72,8 +96,7 @@ enum ResponseChannel: String, CaseIterable, Identifiable {
             You exist to help users communicate **clearly, professionally, and effectively** for LinkedIn.
             """
 
-        case .whatsapp:
-            return """
+    private static let defaultWhatsAppPrompt = """
             You are a **WhatsApp Reply Assistant** designed to generate clear, natural, and context-appropriate WhatsApp messages.
             ### **Core Responsibilities**
             1. **Generate replies** to any type of WhatsApp message, including but not limited to:
@@ -110,8 +133,7 @@ enum ResponseChannel: String, CaseIterable, Identifiable {
             You exist to help users communicate **clearly, appropriately, and confidently** on WhatsApp.
             """
 
-        case .email:
-            return """
+    private static let defaultEmailPrompt = """
             You are an AI assistant specialized in reading, understanding, and crafting replies to emails. Your core function is to help the user create clear, appropriate, and professional email responses quickly and efficiently.
             Your behavior should follow these principles:
             Clarify Before You Write:
@@ -128,20 +150,6 @@ enum ResponseChannel: String, CaseIterable, Identifiable {
             You are not a general chatbot — your sole purpose is to help the user craft effective email responses.
             End output must be a VALID professional email response, following the voice and tonality of the screenshot of the conversation.
             """
-        }
-    }
-
-    // User-facing prompt injected alongside the screenshot
-    var userPrompt: String {
-        switch self {
-        case .linkedin:
-            return "Analyze this LinkedIn conversation screenshot and generate a professional, context-aware reply. Output only the message text."
-        case .whatsapp:
-            return "Analyze this WhatsApp conversation screenshot and generate a natural, appropriate reply. Output only the message text."
-        case .email:
-            return "Analyze this email screenshot and generate a professional email reply. Output only the complete email reply text."
-        }
-    }
 }
 
 // MARK: - Analyze View
@@ -654,80 +662,108 @@ struct AnalyzeView: View {
         }
         let base64 = imageData.base64EncodedString()
 
-        // Build channel-specific prompts
+        // Capture values needed inside the closure
+        let channel = selectedChannel
         let contextNote = context.trimmingCharacters(in: .whitespacesAndNewlines)
-        let userPromptText = contextNote.isEmpty
-            ? selectedChannel.userPrompt
-            : "\(selectedChannel.userPrompt)\n\nAdditional context from user: \(contextNote)"
 
-        // Build OpenAI Vision API request
-        let endpoint = URL(string: "https://api.openai.com/v1/chat/completions")!
-        var request = URLRequest(url: endpoint)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
-        request.timeoutInterval = 60
-
-        let body: [String: Any] = [
-            "model": "gpt-4o",
-            "messages": [
-                ["role": "system", "content": selectedChannel.systemPrompt],
-                ["role": "user", "content": [
-                    ["type": "text", "text": userPromptText],
-                    ["type": "image_url", "image_url": [
-                        "url": "data:image/jpeg;base64,\(base64)",
-                        "detail": "high"
-                    ]]
-                ] as Any]
-            ],
-            "max_tokens": 800,
-            "temperature": 0.7
-        ]
-
-        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
-
-        URLSession.shared.dataTask(with: request) { data, response, error in
-            DispatchQueue.main.async {
-                isGenerating = false
-
-                if let error {
-                    withAnimation { errorMessage = "Network error: \(error.localizedDescription)" }
-                    return
-                }
-                guard let data, let http = response as? HTTPURLResponse else {
-                    withAnimation { errorMessage = "No response from server." }
-                    return
-                }
-                guard http.statusCode == 200 else {
-                    if let body = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                       let err = body["error"] as? [String: Any],
-                       let msg = err["message"] as? String {
-                        withAnimation { errorMessage = "API: \(msg)" }
-                    } else {
-                        withAnimation { errorMessage = "API error (\(http.statusCode))" }
-                    }
-                    return
-                }
-
-                // Decode response
-                struct VisionResponse: Decodable {
-                    struct Choice: Decodable {
-                        struct Message: Decodable { let content: String }
-                        let message: Message
-                    }
-                    let choices: [Choice]
-                }
-
-                if let decoded = try? JSONDecoder().decode(VisionResponse.self, from: data),
-                   let content = decoded.choices.first?.message.content {
-                    withAnimation(.easeInOut(duration: 0.3)) {
-                        generatedReply = content.trimmingCharacters(in: .whitespacesAndNewlines)
-                    }
-                } else {
-                    withAnimation { errorMessage = "Could not parse AI response." }
-                }
+        // Fetch fresh config before every API call
+        SayThisLog.api("generateReply() called [\(channel.rawValue)] — fetching config…")
+        RemoteConfigService.shared.fetchConfig { config in
+            if let sc = config?.screenshotReply {
+                SayThisLog.api("✅ Using REMOTE config for Screenshot Reply [\(channel.rawValue)]")
+                SayThisLog.api("  model=\(sc.model)  temp=\(sc.temperature)  maxTokens=\(sc.maxTokens)  detail=\(sc.imageDetail)")
+                SayThisLog.api("  systemPrompt preview: \(SayThisLog.preview(channel.systemPrompt(from: config)))")
+                SayThisLog.api("  userPrompt preview:   \(SayThisLog.preview(channel.userPrompt(from: config)))")
+            } else {
+                SayThisLog.warn("Config unavailable — Screenshot Reply [\(channel.rawValue)] using HARDCODED fallback defaults")
+                SayThisLog.warn("  model=gpt-4o (default)  temp=0.7  maxTokens=800")
             }
-        }.resume()
+
+            // Build channel-specific prompts using fresh config
+            let channelUserPrompt = channel.userPrompt(from: config)
+            let userPromptText = contextNote.isEmpty
+                ? channelUserPrompt
+                : "\(channelUserPrompt)\n\nAdditional context from user: \(contextNote)"
+
+            // Build OpenAI Vision API request
+            let endpoint = URL(string: "https://api.openai.com/v1/chat/completions")!
+            var request = URLRequest(url: endpoint)
+            request.httpMethod = "POST"
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+            request.timeoutInterval = 60
+
+            let sc = config?.screenshotReply
+            let body: [String: Any] = [
+                "model": sc?.model ?? "gpt-4o",
+                "messages": [
+                    ["role": "system", "content": channel.systemPrompt(from: config)],
+                    ["role": "user", "content": [
+                        ["type": "text", "text": userPromptText],
+                        ["type": "image_url", "image_url": [
+                            "url": "data:image/jpeg;base64,\(base64)",
+                            "detail": sc?.imageDetail ?? "high"
+                        ]]
+                    ] as Any]
+                ],
+                "max_tokens": sc?.maxTokens ?? 800,
+                "temperature": sc?.temperature ?? 0.7,
+                "top_p": sc?.topP ?? 1.0
+            ]
+
+            request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+
+            SayThisLog.api("Sending Screenshot Reply request to OpenAI Vision…")
+            URLSession.shared.dataTask(with: request) { data, response, error in
+                DispatchQueue.main.async { [self] in
+                    isGenerating = false
+
+                    if let error {
+                        SayThisLog.error("Screenshot Reply network error: \(error.localizedDescription)")
+                        withAnimation { errorMessage = "Network error: \(error.localizedDescription)" }
+                        return
+                    }
+                    guard let data, let http = response as? HTTPURLResponse else {
+                        SayThisLog.error("Screenshot Reply: no data or non-HTTP response")
+                        withAnimation { errorMessage = "No response from server." }
+                        return
+                    }
+                    SayThisLog.api("Screenshot Reply HTTP \(http.statusCode), body size: \(data.count) bytes")
+                    guard http.statusCode == 200 else {
+                        if let body = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                           let err = body["error"] as? [String: Any],
+                           let msg = err["message"] as? String {
+                            SayThisLog.error("Screenshot Reply API error: \(msg)")
+                            withAnimation { errorMessage = "API: \(msg)" }
+                        } else {
+                            SayThisLog.error("Screenshot Reply HTTP error: \(http.statusCode)")
+                            withAnimation { errorMessage = "API error (\(http.statusCode))" }
+                        }
+                        return
+                    }
+
+                    // Decode response
+                    struct VisionResponse: Decodable {
+                        struct Choice: Decodable {
+                            struct Message: Decodable { let content: String }
+                            let message: Message
+                        }
+                        let choices: [Choice]
+                    }
+
+                    if let decoded = try? JSONDecoder().decode(VisionResponse.self, from: data),
+                       let content = decoded.choices.first?.message.content {
+                        SayThisLog.api("✅ Screenshot Reply success — \(content.count) chars")
+                        withAnimation(.easeInOut(duration: 0.3)) {
+                            generatedReply = content.trimmingCharacters(in: .whitespacesAndNewlines)
+                        }
+                    } else {
+                        SayThisLog.error("Screenshot Reply JSON decode failed. Raw: \((String(data: data, encoding: .utf8) ?? "unreadable").prefix(300))")
+                        withAnimation { errorMessage = "Could not parse AI response." }
+                    }
+                }
+            }.resume()
+        }
     }
 }
 

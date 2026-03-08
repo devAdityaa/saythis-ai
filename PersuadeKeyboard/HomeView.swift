@@ -36,7 +36,7 @@ struct HomeView: View {
                                     Image(systemName: "bolt.fill")
                                         .font(.system(size: 10))
                                         .foregroundColor(AppTheme.accent)
-                                    Text("Say the right thing. Instantly.")
+                                    Text(RemoteConfigService.shared.cached?.ui.appTagline ?? "Say the right thing. Instantly.")
                                         .font(.system(size: 12))
                                         .foregroundColor(AppTheme.subtext)
                                 }
@@ -108,7 +108,10 @@ struct HomeView: View {
                             Text("Pro tip: ")
                                 .font(.system(size: 12, weight: .semibold))
                                 .foregroundColor(.white) +
-                            Text("Use the SayThis keyboard directly in any messaging app!")
+                            Text({
+                                let t = RemoteConfigService.shared.cached?.ui.proTipText
+                                return (t?.isEmpty == false ? t : nil) ?? "Use the SayThis keyboard directly in any messaging app!"
+                            }())
                                 .font(.system(size: 12))
                                 .foregroundColor(AppTheme.subtext)
 

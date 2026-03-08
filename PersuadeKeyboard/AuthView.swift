@@ -28,7 +28,8 @@ struct AuthView: View {
     @State private var wordIndex = 0
     @State private var charIndex = 0
     @State private var isDeleting = false
-    private let words = ["Companion", "Sidekick", "Wingman", "Assistant", "Edge"]
+    // Snapshot words once to avoid mid-animation changes from async config fetch
+    @State private var words: [String] = ["Companion", "Sidekick", "Wingman", "Assistant", "Edge"]
     @State private var typingStarted = false
 
     var body: some View {
@@ -83,6 +84,11 @@ struct AuthView: View {
         }
         .ignoresSafeArea()
         .onAppear {
+            // Snapshot config words if available (prevents mid-animation array changes)
+            if let configWords = RemoteConfigService.shared.cached?.ui.typewriterWords, !configWords.isEmpty {
+                words = configWords
+            }
+
             withAnimation(.easeOut(duration: 0.8).delay(0.3)) {
                 appeared = true
             }
@@ -108,7 +114,7 @@ struct AuthView: View {
                 .opacity(appeared ? 1 : 0)
                 .scaleEffect(appeared ? 1 : 0.6)
 
-            BadgePill(icon: "sparkles", text: "AI Messaging")
+            BadgePill(icon: "sparkles", text: RemoteConfigService.shared.cached?.ui.landingBadge ?? "AI Messaging")
                 .opacity(appeared ? 1 : 0)
                 .offset(y: appeared ? 0 : 15)
                 .padding(.bottom, 10)
@@ -130,7 +136,7 @@ struct AuthView: View {
             .padding(.bottom, 6)
 
             VStack(spacing: 4) {
-                Text("Always know what to say.")
+                Text(RemoteConfigService.shared.cached?.ui.landingSubtitle ?? "Always know what to say.")
                     .font(.system(size: 15))
                     .foregroundColor(AppTheme.subtext)
                 Text("Copy. Paste. Send.")
@@ -142,11 +148,17 @@ struct AuthView: View {
 
             Spacer().frame(height: screenHeight * 0.04)
 
-            // Feature highlights — fills the blank space
+            // Feature highlights — fills the blank space (dynamic from control panel)
             VStack(spacing: 10) {
-                LandingFeatureRow(icon: "keyboard", text: "AI keyboard that works in any app")
-                LandingFeatureRow(icon: "camera.viewfinder", text: "Screenshot any chat and get a reply")
-                LandingFeatureRow(icon: "bubble.left.and.bubble.right", text: "Think through your reply before you send")
+                let configRows = RemoteConfigService.shared.cached?.ui.featureRows
+                let rows = (configRows?.isEmpty == false ? configRows : nil) ?? [
+                    RCFeatureRow(icon: "keyboard", text: "AI keyboard that works in any app"),
+                    RCFeatureRow(icon: "camera.viewfinder", text: "Screenshot any chat and get a reply"),
+                    RCFeatureRow(icon: "bubble.left.and.bubble.right", text: "Think through your reply before you send")
+                ]
+                ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
+                    LandingFeatureRow(icon: row.icon, text: row.text)
+                }
             }
             .padding(.horizontal, 32)
             .opacity(appeared ? 1 : 0)
@@ -347,6 +359,12 @@ struct AuthView: View {
 
     // MARK: - Typewriter animation
     private func startTyping() {
+        // Safety: bail out if words array is empty
+        guard !words.isEmpty else { return }
+
+        // Safety: clamp wordIndex within bounds
+        if wordIndex >= words.count { wordIndex = 0 }
+
         let word = words[wordIndex]
 
         if !isDeleting {
