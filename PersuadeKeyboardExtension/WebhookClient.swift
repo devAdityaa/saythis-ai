@@ -5,28 +5,6 @@ private let kbLogger = Logger(subsystem: "com.goatedx.persuade.keyboard", catego
 
 // MARK: - API Key Storage
 //
-<<<<<<< HEAD
-// The keyboard extension is a separate process and reads the global internal
-// API key written to the App Group by GlobalConfig.seedKeyToAppGroup() on launch.
-enum APIKeyStore {
-    static let appGroupID = "group.com.goatedx.persuade"
-
-    static var currentUserEmail: String? {
-        UserDefaults(suiteName: appGroupID)?.string(forKey: "user_email")
-    }
-
-    static func scopedKey(_ base: String) -> String {
-        guard let email = currentUserEmail, !email.isEmpty else { return base }
-        return "\(base)|\(email)"
-    }
-
-    /// Global internal key — shared across all accounts, written by the main app on launch.
-    static var apiKey: String? {
-        if let gd = UserDefaults(suiteName: appGroupID),
-           let k = gd.string(forKey: "global_openai_api_key"), !k.isEmpty { return k }
-        return nil
-    }
-=======
 // OpenAI key is NEVER stored in the extension.
 // All AI calls go through the backend proxy at /api/ai/keyboard
 // authenticated with the shared KB_TOKEN (same as Supabase config token).
@@ -35,7 +13,6 @@ enum APIKeyStore {
     static var currentUserEmail: String? { nil }
 
     static func scopedKey(_ base: String) -> String { base }  // no scoping without email
->>>>>>> 40fac7a (Add AI proxy endpoints)
 }
 
 // MARK: - Generation Mode (mirror of main app's GenerationMode)
@@ -68,10 +45,9 @@ enum KBModeStore {
     private static let modesBaseKey = "keyboard_generation_modes"
 
     static func loadModes() -> [KBGenerationMode] {
+        // No App Group — use extension's own local UserDefaults as cache
         let key = APIKeyStore.scopedKey(modesBaseKey)
-        let ud = UserDefaults(suiteName: APIKeyStore.appGroupID)
-
-        if let data = ud?.data(forKey: key),
+        if let data = UserDefaults.standard.data(forKey: key),
            let modes = try? JSONDecoder().decode([KBGenerationMode].self, from: data),
            !modes.isEmpty {
             return modes

@@ -629,19 +629,11 @@ struct AnalyzeView: View {
         }
     }
 
-<<<<<<< HEAD
-    // MARK: - Generate reply via OpenAI Vision
+    // MARK: - Generate reply via backend proxy → OpenAI Vision
     private func generateReply() {
         guard let image = selectedImage else { return }
-        guard let apiKey = KeyStore.apiKey, !apiKey.isEmpty else {
-            withAnimation { errorMessage = "AI service unavailable. Please try again later." }
-=======
-    // MARK: - Generate reply via backend proxy → OpenAI Vision (multi-image)
-    private func generateReply() {
-        guard !selectedImages.isEmpty else { return }
         guard let userToken = APIService.shared.token, !userToken.isEmpty else {
             withAnimation { errorMessage = "Please sign in to use this feature." }
->>>>>>> 40fac7a (Add AI proxy endpoints)
             return
         }
 
@@ -660,118 +652,103 @@ struct AnalyzeView: View {
         }
         let base64 = imageData.base64EncodedString()
 
-        // Capture values needed inside the closure
+        // Capture values needed
         let channel = selectedChannel
         let contextNote = context.trimmingCharacters(in: .whitespacesAndNewlines)
 
-        // Fetch fresh config before every API call
-        SayThisLog.api("generateReply() called [\(channel.rawValue)] — fetching config…")
-        RemoteConfigService.shared.fetchConfig { config in
-            if let sc = config?.screenshotReply {
-                SayThisLog.api("✅ Using REMOTE config for Screenshot Reply [\(channel.rawValue)]")
-                SayThisLog.api("  model=\(sc.model)  temp=\(sc.temperature)  maxTokens=\(sc.maxTokens)  detail=\(sc.imageDetail)")
-                SayThisLog.api("  systemPrompt preview: \(SayThisLog.preview(channel.systemPrompt(from: config)))")
-                SayThisLog.api("  userPrompt preview:   \(SayThisLog.preview(channel.userPrompt(from: config)))")
-            } else {
-                SayThisLog.warn("Config unavailable — Screenshot Reply [\(channel.rawValue)] using HARDCODED fallback defaults")
-                SayThisLog.warn("  model=gpt-4o (default)  temp=0.7  maxTokens=800")
-            }
-
-<<<<<<< HEAD
-            // Build channel-specific prompts using fresh config
-            let channelUserPrompt = channel.userPrompt(from: config)
-            let userPromptText = contextNote.isEmpty
-                ? channelUserPrompt
-                : "\(channelUserPrompt)\n\nAdditional context from user: \(contextNote)"
-
-            // Build OpenAI Vision API request
-            let endpoint = URL(string: "https://api.openai.com/v1/chat/completions")!
-            var request = URLRequest(url: endpoint)
-            request.httpMethod = "POST"
-            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-            request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
-            request.timeoutInterval = 60
-=======
-            // Route through backend proxy — OpenAI key never leaves the server
-            let endpoint = URL(string: "\(APIService.shared.baseURL.trimmingCharacters(in: CharacterSet(charactersIn: "/")))api/ai/analyze")!
-            var request = URLRequest(url: endpoint)
-            request.httpMethod = "POST"
-            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-            request.setValue("Bearer \(userToken)", forHTTPHeaderField: "Authorization")
-            request.timeoutInterval = 90 // Longer timeout for multiple images
->>>>>>> 40fac7a (Add AI proxy endpoints)
-
-            let sc = config?.screenshotReply
-            let body: [String: Any] = [
-                "model": sc?.model ?? "gpt-4o",
-                "messages": [
-                    ["role": "system", "content": channel.systemPrompt(from: config)],
-                    ["role": "user", "content": [
-                        ["type": "text", "text": userPromptText],
-                        ["type": "image_url", "image_url": [
-                            "url": "data:image/jpeg;base64,\(base64)",
-                            "detail": sc?.imageDetail ?? "high"
-                        ]]
-                    ] as Any]
-                ],
-                "max_tokens": sc?.maxTokens ?? 800,
-                "temperature": sc?.temperature ?? 0.7,
-                "top_p": sc?.topP ?? 1.0
-            ]
-
-            request.httpBody = try? JSONSerialization.data(withJSONObject: body)
-
-            SayThisLog.api("Sending Screenshot Reply request to OpenAI Vision…")
-            URLSession.shared.dataTask(with: request) { data, response, error in
-                DispatchQueue.main.async { [self] in
-                    isGenerating = false
-
-                    if let error {
-                        SayThisLog.error("Screenshot Reply network error: \(error.localizedDescription)")
-                        withAnimation { errorMessage = "Network error: \(error.localizedDescription)" }
-                        return
-                    }
-                    guard let data, let http = response as? HTTPURLResponse else {
-                        SayThisLog.error("Screenshot Reply: no data or non-HTTP response")
-                        withAnimation { errorMessage = "No response from server." }
-                        return
-                    }
-                    SayThisLog.api("Screenshot Reply HTTP \(http.statusCode), body size: \(data.count) bytes")
-                    guard http.statusCode == 200 else {
-                        if let body = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                           let err = body["error"] as? [String: Any],
-                           let msg = err["message"] as? String {
-                            SayThisLog.error("Screenshot Reply API error: \(msg)")
-                            withAnimation { errorMessage = "API: \(msg)" }
-                        } else {
-                            SayThisLog.error("Screenshot Reply HTTP error: \(http.statusCode)")
-                            withAnimation { errorMessage = "API error (\(http.statusCode))" }
-                        }
-                        return
-                    }
-
-                    // Decode response
-                    struct VisionResponse: Decodable {
-                        struct Choice: Decodable {
-                            struct Message: Decodable { let content: String }
-                            let message: Message
-                        }
-                        let choices: [Choice]
-                    }
-
-                    if let decoded = try? JSONDecoder().decode(VisionResponse.self, from: data),
-                       let content = decoded.choices.first?.message.content {
-                        SayThisLog.api("✅ Screenshot Reply success — \(content.count) chars")
-                        withAnimation(.easeInOut(duration: 0.3)) {
-                            generatedReply = content.trimmingCharacters(in: .whitespacesAndNewlines)
-                        }
-                    } else {
-                        SayThisLog.error("Screenshot Reply JSON decode failed. Raw: \((String(data: data, encoding: .utf8) ?? "unreadable").prefix(300))")
-                        withAnimation { errorMessage = "Could not parse AI response." }
-                    }
-                }
-            }.resume()
+        // Use cached config
+        let config = RemoteConfigService.shared.cached
+        if let sc = config?.screenshotReply {
+            SayThisLog.api("✅ Using REMOTE config for Screenshot Reply [\(channel.rawValue)]")
+            SayThisLog.api("  model=\(sc.model)  temp=\(sc.temperature)  maxTokens=\(sc.maxTokens)  detail=\(sc.imageDetail)")
+        } else {
+            SayThisLog.warn("Config unavailable — Screenshot Reply [\(channel.rawValue)] using HARDCODED fallback defaults")
         }
+
+        // Build channel-specific prompts
+        let channelUserPrompt = channel.userPrompt(from: config)
+        let userPromptText = contextNote.isEmpty
+            ? channelUserPrompt
+            : "\(channelUserPrompt)\n\nAdditional context from user: \(contextNote)"
+
+        let sc = config?.screenshotReply
+
+        // Route through backend proxy — OpenAI key never leaves the server
+        let base = APIService.shared.baseURL.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        let endpoint = URL(string: "\(base)/api/ai/analyze")!
+        var request = URLRequest(url: endpoint)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("Bearer \(userToken)", forHTTPHeaderField: "Authorization")
+        request.timeoutInterval = 90
+
+        let body: [String: Any] = [
+            "model": sc?.model ?? "gpt-4o",
+            "messages": [
+                ["role": "system", "content": channel.systemPrompt(from: config)],
+                ["role": "user", "content": [
+                    ["type": "text", "text": userPromptText],
+                    ["type": "image_url", "image_url": [
+                        "url": "data:image/jpeg;base64,\(base64)",
+                        "detail": sc?.imageDetail ?? "high"
+                    ]]
+                ] as Any]
+            ],
+            "max_tokens": sc?.maxTokens ?? 800,
+            "temperature": sc?.temperature ?? 0.7,
+            "top_p": sc?.topP ?? 1.0
+        ]
+        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+
+        SayThisLog.api("Sending Screenshot Reply to backend…")
+        URLSession.shared.dataTask(with: request) { data, response, error in
+            DispatchQueue.main.async { [self] in
+                isGenerating = false
+
+                if let error {
+                    SayThisLog.error("Screenshot Reply network error: \(error.localizedDescription)")
+                    withAnimation { errorMessage = "Network error: \(error.localizedDescription)" }
+                    return
+                }
+                guard let data, let http = response as? HTTPURLResponse else {
+                    SayThisLog.error("Screenshot Reply: no data or non-HTTP response")
+                    withAnimation { errorMessage = "No response from server." }
+                    return
+                }
+                SayThisLog.api("Screenshot Reply HTTP \(http.statusCode), body size: \(data.count) bytes")
+                guard http.statusCode == 200 else {
+                    if let body = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                       let err = body["error"] as? [String: Any],
+                       let msg = err["message"] as? String {
+                        SayThisLog.error("Screenshot Reply API error: \(msg)")
+                        withAnimation { errorMessage = "API: \(msg)" }
+                    } else {
+                        SayThisLog.error("Screenshot Reply HTTP error: \(http.statusCode)")
+                        withAnimation { errorMessage = "API error (\(http.statusCode))" }
+                    }
+                    return
+                }
+
+                struct VisionResponse: Decodable {
+                    struct Choice: Decodable {
+                        struct Message: Decodable { let content: String }
+                        let message: Message
+                    }
+                    let choices: [Choice]
+                }
+
+                if let decoded = try? JSONDecoder().decode(VisionResponse.self, from: data),
+                   let content = decoded.choices.first?.message.content {
+                    SayThisLog.api("✅ Screenshot Reply success — \(content.count) chars")
+                    withAnimation(.easeInOut(duration: 0.3)) {
+                        generatedReply = content.trimmingCharacters(in: .whitespacesAndNewlines)
+                    }
+                } else {
+                    SayThisLog.error("Screenshot Reply JSON decode failed. Raw: \((String(data: data, encoding: .utf8) ?? "unreadable").prefix(300))")
+                    withAnimation { errorMessage = "Could not parse AI response." }
+                }
+            }
+        }.resume()
     }
 }
 

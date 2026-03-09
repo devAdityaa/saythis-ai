@@ -383,7 +383,7 @@ Rules:
             var request = URLRequest(url: self.endpoint)
             request.httpMethod = "POST"
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-            request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+            request.setValue("Bearer \(userToken)", forHTTPHeaderField: "Authorization")
             request.timeoutInterval = 60
 
             do {
@@ -395,37 +395,6 @@ Rules:
 
             self.performRequest(request, attempt: 0, completion: completion)
         }
-<<<<<<< HEAD
-=======
-
-        let sysPrompt = rc?.systemPrompt ?? Self.defaultSystemPrompt
-        let splitInstr = rc?.splitModeInstruction ?? Self.defaultSplitModeInstruction
-        let instructions = splitMode ? sysPrompt + splitInstr : sysPrompt
-
-        var body = ResponsesRequest(
-            model: rc?.model ?? "gpt-4.1-mini",
-            instructions: instructions,
-            input: input
-        )
-        body.temperature = rc?.temperature
-        body.top_p = rc?.topP
-        body.max_output_tokens = rc?.maxTokens
-
-        var request = URLRequest(url: endpoint)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue("Bearer \(userToken)", forHTTPHeaderField: "Authorization")
-        request.timeoutInterval = 60
-
-        do {
-            request.httpBody = try JSONEncoder().encode(body)
-        } catch {
-            DispatchQueue.main.async { completion(.failure(ChatAPIError.invalidResponse)) }
-            return
-        }
-
-        performRequest(request, attempt: 0, completion: completion)
->>>>>>> 40fac7a (Add AI proxy endpoints)
     }
 
     /// Performs the URL request with automatic retry for transient network errors.

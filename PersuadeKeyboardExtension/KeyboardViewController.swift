@@ -3,12 +3,9 @@ import UIKit
 // MARK: - Dynamic Theme
 
 enum KBTheme {
-    private static let appGroupID = "group.com.goatedx.persuade"
-
+    // No App Group — theme uses extension's own local UserDefaults; default_dark fallback.
     static var themeID: String {
-        let email = UserDefaults(suiteName: appGroupID)?.string(forKey: "user_email") ?? ""
-        let key   = email.isEmpty ? "keyboard_theme" : "keyboard_theme|\(email)"
-        return UserDefaults(suiteName: appGroupID)?.string(forKey: key) ?? "default_dark"
+        return UserDefaults.standard.string(forKey: "keyboard_theme") ?? "default_dark"
     }
 
     static var bg: UIColor {
@@ -153,13 +150,10 @@ class KeyboardViewController: UIInputViewController {
 
     // MARK: - Auth check
 
-    private static let appGroupID = "group.com.goatedx.persuade"
-
     private func checkAuth() -> Bool {
-        guard let group = UserDefaults(suiteName: Self.appGroupID) else { return false }
-        let token = group.string(forKey: "auth_token") ?? ""
-        let email = group.string(forKey: "user_email") ?? ""
-        return !token.isEmpty && !email.isEmpty
+        // No App Group — keyboard is always accessible.
+        // API key is on the backend, not in the app.
+        return true
     }
 
     // MARK: - Lifecycle
