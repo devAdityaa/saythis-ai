@@ -1,16 +1,6 @@
 import SwiftUI
 import PhotosUI
 
-// MARK: - API key helper
-// Reads the global internal key seeded by GlobalConfig on app launch.
-private enum KeyStore {
-    static var apiKey: String? {
-        let gd = UserDefaults(suiteName: UserScopedStorage.appGroupID)
-        if let k = gd?.string(forKey: "global_openai_api_key"), !k.isEmpty { return k }
-        return nil
-    }
-}
-
 // MARK: - Response channels
 enum ResponseChannel: String, CaseIterable, Identifiable {
     case email    = "Email"
@@ -639,11 +629,19 @@ struct AnalyzeView: View {
         }
     }
 
+<<<<<<< HEAD
     // MARK: - Generate reply via OpenAI Vision
     private func generateReply() {
         guard let image = selectedImage else { return }
         guard let apiKey = KeyStore.apiKey, !apiKey.isEmpty else {
             withAnimation { errorMessage = "AI service unavailable. Please try again later." }
+=======
+    // MARK: - Generate reply via backend proxy → OpenAI Vision (multi-image)
+    private func generateReply() {
+        guard !selectedImages.isEmpty else { return }
+        guard let userToken = APIService.shared.token, !userToken.isEmpty else {
+            withAnimation { errorMessage = "Please sign in to use this feature." }
+>>>>>>> 40fac7a (Add AI proxy endpoints)
             return
         }
 
@@ -679,6 +677,7 @@ struct AnalyzeView: View {
                 SayThisLog.warn("  model=gpt-4o (default)  temp=0.7  maxTokens=800")
             }
 
+<<<<<<< HEAD
             // Build channel-specific prompts using fresh config
             let channelUserPrompt = channel.userPrompt(from: config)
             let userPromptText = contextNote.isEmpty
@@ -692,6 +691,15 @@ struct AnalyzeView: View {
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
             request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
             request.timeoutInterval = 60
+=======
+            // Route through backend proxy — OpenAI key never leaves the server
+            let endpoint = URL(string: "\(APIService.shared.baseURL.trimmingCharacters(in: CharacterSet(charactersIn: "/")))api/ai/analyze")!
+            var request = URLRequest(url: endpoint)
+            request.httpMethod = "POST"
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.setValue("Bearer \(userToken)", forHTTPHeaderField: "Authorization")
+            request.timeoutInterval = 90 // Longer timeout for multiple images
+>>>>>>> 40fac7a (Add AI proxy endpoints)
 
             let sc = config?.screenshotReply
             let body: [String: Any] = [

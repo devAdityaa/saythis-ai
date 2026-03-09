@@ -1,25 +1,15 @@
 import Foundation
 
-// MARK: - API Key Store
-// Reads the global internal key seeded by GlobalConfig on app launch.
-private enum ChatKeyStore {
-    static var apiKey: String? {
-        let gd = UserDefaults(suiteName: UserScopedStorage.appGroupID)
-        if let k = gd?.string(forKey: "global_openai_api_key"), !k.isEmpty { return k }
-        return nil
-    }
-}
-
 // MARK: - Errors
 enum ChatAPIError: LocalizedError {
-    case noAPIKey
+    case notSignedIn
     case invalidResponse
     case httpError(Int, String)
     case network(Error)
 
     var errorDescription: String? {
         switch self {
-        case .noAPIKey:           return "AI service unavailable. Please try again later."
+        case .notSignedIn:        return "Please sign in to use SayThis."
         case .invalidResponse:    return "Received an invalid response from the server."
         case .httpError(let c, let m): return "Error \(c): \(m)"
         case .network(let e):     return e.localizedDescription
@@ -97,7 +87,11 @@ final class ChatAPIService {
     static let shared = ChatAPIService()
     private init() {}
 
-    private let endpoint = URL(string: "https://api.openai.com/v1/responses")!
+    // Routes through backend proxy — OpenAI key is stored securely on the server
+    private var endpoint: URL {
+        let base = APIService.shared.baseURL.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        return URL(string: "\(base)/api/ai/chat")!
+    }
 
     // ─── System Prompt fallback (used when remote config unavailable) ───
     static var systemPrompt: String { defaultSystemPrompt }
@@ -318,8 +312,8 @@ Rules:
         splitMode: Bool = false,
         completion: @escaping (Result<String, Error>) -> Void
     ) {
-        guard let apiKey = ChatKeyStore.apiKey else {
-            completion(.failure(ChatAPIError.noAPIKey))
+        guard let userToken = APIService.shared.token, !userToken.isEmpty else {
+            completion(.failure(ChatAPIError.notSignedIn))
             return
         }
 
@@ -401,6 +395,37 @@ Rules:
 
             self.performRequest(request, attempt: 0, completion: completion)
         }
+<<<<<<< HEAD
+=======
+
+        let sysPrompt = rc?.systemPrompt ?? Self.defaultSystemPrompt
+        let splitInstr = rc?.splitModeInstruction ?? Self.defaultSplitModeInstruction
+        let instructions = splitMode ? sysPrompt + splitInstr : sysPrompt
+
+        var body = ResponsesRequest(
+            model: rc?.model ?? "gpt-4.1-mini",
+            instructions: instructions,
+            input: input
+        )
+        body.temperature = rc?.temperature
+        body.top_p = rc?.topP
+        body.max_output_tokens = rc?.maxTokens
+
+        var request = URLRequest(url: endpoint)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("Bearer \(userToken)", forHTTPHeaderField: "Authorization")
+        request.timeoutInterval = 60
+
+        do {
+            request.httpBody = try JSONEncoder().encode(body)
+        } catch {
+            DispatchQueue.main.async { completion(.failure(ChatAPIError.invalidResponse)) }
+            return
+        }
+
+        performRequest(request, attempt: 0, completion: completion)
+>>>>>>> 40fac7a (Add AI proxy endpoints)
     }
 
     /// Performs the URL request with automatic retry for transient network errors.
@@ -409,7 +434,7 @@ Rules:
         attempt: Int,
         completion: @escaping (Result<String, Error>) -> Void
     ) {
-        SayThisLog.api("OpenAI Responses API call — attempt \(attempt + 1)")
+        SayThisLog.api("Backend AI chat call — attempt \(attempt + 1)")
         URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
             guard let self else { return }
 

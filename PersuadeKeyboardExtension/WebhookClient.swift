@@ -5,6 +5,7 @@ private let kbLogger = Logger(subsystem: "com.goatedx.persuade.keyboard", catego
 
 // MARK: - API Key Storage
 //
+<<<<<<< HEAD
 // The keyboard extension is a separate process and reads the global internal
 // API key written to the App Group by GlobalConfig.seedKeyToAppGroup() on launch.
 enum APIKeyStore {
@@ -25,6 +26,16 @@ enum APIKeyStore {
            let k = gd.string(forKey: "global_openai_api_key"), !k.isEmpty { return k }
         return nil
     }
+=======
+// OpenAI key is NEVER stored in the extension.
+// All AI calls go through the backend proxy at /api/ai/keyboard
+// authenticated with the shared KB_TOKEN (same as Supabase config token).
+enum APIKeyStore {
+    /// Returns nil — email scoping is unavailable without App Group.
+    static var currentUserEmail: String? { nil }
+
+    static func scopedKey(_ base: String) -> String { base }  // no scoping without email
+>>>>>>> 40fac7a (Add AI proxy endpoints)
 }
 
 // MARK: - Generation Mode (mirror of main app's GenerationMode)
@@ -186,7 +197,6 @@ fileprivate enum KBConfigFetcher {
 // MARK: - Errors
 
 enum OpenAIError: LocalizedError {
-    case noAPIKey
     case emptyInput
     case invalidResponse
     case httpError(Int, String)
@@ -196,8 +206,6 @@ enum OpenAIError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .noAPIKey:
-            return "AI service unavailable. Try reopening the SayThis app."
         case .emptyInput:
             return "Nothing to generate from. Copy a message or type first."
         case .invalidResponse:
@@ -243,7 +251,9 @@ final class OpenAIClient {
         return URLSession(configuration: cfg)
     }()
 
-    private let endpoint = URL(string: "https://api.openai.com/v1/chat/completions")!
+    // Backend proxy endpoint — OpenAI key stays on the server
+    private let endpoint = URL(string: "https://persuade-ai-backend.vercel.app/api/ai/keyboard")!
+    private let kbToken  = "saythis2026"   // shared app token for keyboard (set KB_TOKEN in Vercel)
 
     func generateReplies(
         from input: String,
@@ -253,9 +263,6 @@ final class OpenAIClient {
         let trimmed = input.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
             completion(.failure(OpenAIError.emptyInput)); return
-        }
-        guard let apiKey = APIKeyStore.apiKey, !apiKey.isEmpty else {
-            completion(.failure(OpenAIError.noAPIKey)); return
         }
 
         // Fetch fresh config before every API call
@@ -276,7 +283,7 @@ final class OpenAIClient {
             var request = URLRequest(url: self.endpoint)
             request.httpMethod = "POST"
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-            request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+            request.setValue("Bearer \(self.kbToken)", forHTTPHeaderField: "Authorization")
 
             let body: [String: Any] = [
                 "model": kbConfig?.model ?? "gpt-4.1-mini",
@@ -290,7 +297,7 @@ final class OpenAIClient {
             ]
             request.httpBody = try? JSONSerialization.data(withJSONObject: body)
 
-            kbLogger.info("🤖 [KB API] Sending request to OpenAI…")
+            kbLogger.info("🤖 [KB API] Sending request to backend proxy…")
             self.session.dataTask(with: request) { data, response, error in
                 if let error {
                     kbLogger.error("❌ [KB API] Network error: \(error.localizedDescription, privacy: .public)")

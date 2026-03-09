@@ -18,9 +18,8 @@ final class HomeViewModel {
         let trimmed = pastedText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
 
-        let gd = UserDefaults(suiteName: UserScopedStorage.appGroupID)
-        guard let apiKey = gd?.string(forKey: "global_openai_api_key"), !apiKey.isEmpty else {
-            errorMessage = "AI service unavailable. Please try again later."
+        guard let userToken = APIService.shared.token, !userToken.isEmpty else {
+            errorMessage = "Please sign in to use SayThis."
             return
         }
 
@@ -34,11 +33,13 @@ final class HomeViewModel {
 
         let userMessage = "Generate suggestions for this message:\n\n\(trimmed)"
 
-        let endpoint = URL(string: "https://api.openai.com/v1/chat/completions")!
+        // Route through backend proxy (analyze endpoint accepts JWT + chat/completions format)
+        let base = APIService.shared.baseURL.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        let endpoint = URL(string: "\(base)/api/ai/analyze")!
         var request = URLRequest(url: endpoint)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        request.setValue("Bearer \(userToken)", forHTTPHeaderField: "Authorization")
         request.timeoutInterval = 30
 
         let body: [String: Any] = [

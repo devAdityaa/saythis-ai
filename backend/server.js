@@ -7,14 +7,16 @@ const cors = require('cors');
 
 const app = express();
 app.use(cors());
-app.use(express.json({ limit: '10mb' }));
+app.use(express.json({ limit: '20mb' }));  // 20 MB to handle base64-encoded screenshot batches
 
 // ─── Config ───
-const MONGO_URI  = process.env.MONGO_URI;
-const DB_NAME    = process.env.DB_NAME    || 'persuade_ai';
-const COLLECTION = process.env.COLLECTION || 'userdata';
-const JWT_SECRET = process.env.JWT_SECRET || 'persuade-ai-jwt-secret-change-in-production';
-const PORT       = process.env.PORT       || 3000;
+const MONGO_URI      = process.env.MONGO_URI;
+const DB_NAME        = process.env.DB_NAME    || 'persuade_ai';
+const COLLECTION     = process.env.COLLECTION || 'userdata';
+const JWT_SECRET     = process.env.JWT_SECRET || 'persuade-ai-jwt-secret-change-in-production';
+const PORT           = process.env.PORT       || 3000;
+const OPENAI_API_KEY = process.env.OPENAI_API_KEY;   // Set this in Vercel dashboard — NEVER hardcode
+const KB_TOKEN       = process.env.KB_TOKEN || 'saythis2026'; // Shared app token for keyboard extension
 
 // ─── Cached DB Connection (required for Vercel serverless) ───
 // Each serverless invocation reuses an existing connection rather than
@@ -247,6 +249,66 @@ app.get('/api/metrics', authenticate, async (req, res) => {
         console.error('Metrics error:', err);
         res.status(500).json({ error: 'Server error' });
     }
+});
+
+// ════════════════════════════════════════════════
+//  AI PROXY  — OpenAI key lives ONLY on the server
+//  iOS app sends its JWT (or KB token) → backend
+//  calls OpenAI with the secret key and returns
+//  the raw response unchanged.
+// ════════════════════════════════════════════════
+
+// Helper: forward a request body to an OpenAI endpoint
+async function proxyToOpenAI(openaiPath, body, res) {
+    if (!OPENAI_API_KEY) {
+        return res.status(503).json({ error: 'AI service not configured on server.' });
+    }
+    try {
+        const upstream = await fetch(`https://api.openai.com/${openaiPath}`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${OPENAI_API_KEY}`,
+                'Content-Type': 'application/json',
+                'OpenAI-Beta': 'responses=v1'   // needed for /v1/responses
+            },
+            body: JSON.stringify(body)
+        });
+        const data = await upstream.json();
+        res.status(upstream.status).json(data);
+    } catch (err) {
+        console.error('OpenAI proxy error:', err);
+        res.status(502).json({ error: 'Failed to reach OpenAI.', details: err.message });
+    }
+}
+
+// Middleware: verify the keyboard shared-app token
+function authenticateKB(req, res, next) {
+    const auth = req.headers.authorization;
+    if (!auth || auth !== `Bearer ${KB_TOKEN}`) {
+        return res.status(401).json({ error: 'Unauthorized' });
+    }
+    next();
+}
+
+// POST /api/ai/chat  — Think / Chat mode (OpenAI Responses API)
+// Auth: user JWT (same as all other user endpoints)
+app.post('/api/ai/chat', authenticate, async (req, res) => {
+    const { model, instructions, input, temperature, top_p, max_output_tokens } = req.body;
+    await proxyToOpenAI('v1/responses', { model, instructions, input, temperature, top_p, max_output_tokens }, res);
+});
+
+// POST /api/ai/analyze  — Screenshot reply (OpenAI Chat Completions + Vision)
+// Auth: user JWT
+app.post('/api/ai/analyze', authenticate, async (req, res) => {
+    const { model, messages, max_tokens, temperature, top_p } = req.body;
+    await proxyToOpenAI('v1/chat/completions', { model, messages, max_tokens, temperature, top_p }, res);
+});
+
+// POST /api/ai/keyboard  — Keyboard extension reply generation
+// Auth: shared KB_TOKEN (no user JWT — keyboard has no App Group access)
+app.post('/api/ai/keyboard', authenticateKB, async (req, res) => {
+    const { model, messages, temperature, max_tokens, top_p } = req.body;
+    await proxyToOpenAI('v1/chat/completions', { model, messages, temperature, max_tokens, top_p }, res);
 });
 
 // ════════════════════════════════════════════════
