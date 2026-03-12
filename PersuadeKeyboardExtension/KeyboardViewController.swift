@@ -3,9 +3,14 @@ import UIKit
 // MARK: - Dynamic Theme
 
 enum KBTheme {
-    // No App Group — theme uses extension's own local UserDefaults; default_dark fallback.
+    private static let appGroupID = "group.com.goatedx.persuade"
+
     static var themeID: String {
-        return UserDefaults.standard.string(forKey: "keyboard_theme") ?? "default_dark"
+        let group = UserDefaults(suiteName: appGroupID)
+        group?.synchronize()
+        return group?.string(forKey: "keyboard_theme")
+            ?? UserDefaults.standard.string(forKey: "keyboard_theme")
+            ?? "default_dark"
     }
 
     static var bg: UIColor {

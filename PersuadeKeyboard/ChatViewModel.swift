@@ -21,6 +21,9 @@ final class ChatViewModel {
     var showDocumentPicker: Bool = false
     var showCamera: Bool = false
 
+    // ─── Contextual quick-action chips (hidden until first AI response) ───
+    var contextualChips: [String] = []
+
     // ─── Split-mode toggle ───
     // When ON: each AI response is split into a context bubble + a main-reply
     // bubble so the user can copy just the reply without surrounding text.
@@ -98,6 +101,7 @@ final class ChatViewModel {
         pendingAttachments = []
         errorMessage = nil
         isGenerating = true
+        contextualChips = []
 
         // Call API
         let isSplit = splitMode
@@ -107,9 +111,12 @@ final class ChatViewModel {
 
             switch result {
             case .success(let reply):
+                // Parse AI-generated chips from response
+                let (cleanReply, aiChips) = Self.parseChipsFromResponse(reply)
+
                 if isSplit {
                     // Parse [CONTEXT] + multiple [REPLY] markers into separate bubbles
-                    let (context, replies) = Self.parseSplitReply(reply)
+                    let (context, replies) = Self.parseSplitReply(cleanReply)
                     if let ctx = context, !ctx.isEmpty {
                         self.currentConversation?.messages.append(
                             ChatMessage(role: .assistant, content: ctx, isMainReply: false)
@@ -122,11 +129,18 @@ final class ChatViewModel {
                     }
                 } else {
                     self.currentConversation?.messages.append(
-                        ChatMessage(role: .assistant, content: reply)
+                        ChatMessage(role: .assistant, content: cleanReply)
                     )
                 }
                 self.currentConversation?.updatedAt = Date()
                 if let conv = self.currentConversation { self.store.save(conv) }
+
+                // Use AI-generated chips if available, otherwise fall back to local heuristic
+                if !aiChips.isEmpty {
+                    self.contextualChips = aiChips
+                } else {
+                    self.generateContextualChips(userMessage: text, aiResponse: cleanReply)
+                }
 
             case .failure(let error):
                 self.errorMessage = error.localizedDescription
@@ -211,6 +225,64 @@ final class ChatViewModel {
         case "csv":  return "text/csv"
         default:     return "application/octet-stream"
         }
+    }
+
+    // MARK: - Parse AI-generated chips from response
+    /// Extracts `[CHIPS] a | b | c` from the end of the AI response.
+    /// Returns the clean text (without the chips line) and parsed chip labels.
+    static func parseChipsFromResponse(_ text: String) -> (cleanText: String, chips: [String]) {
+        let lines = text.components(separatedBy: "\n")
+        // Search from the end for a [CHIPS] line
+        for i in stride(from: lines.count - 1, through: max(0, lines.count - 5), by: -1) {
+            let line = lines[i].trimmingCharacters(in: .whitespaces)
+            if line.hasPrefix("[CHIPS]") {
+                let raw = line.replacingOccurrences(of: "[CHIPS]", with: "").trimmingCharacters(in: .whitespaces)
+                let chips = raw.components(separatedBy: "|")
+                    .map { $0.trimmingCharacters(in: .whitespaces) }
+                    .filter { !$0.isEmpty }
+                let cleanLines = Array(lines[0..<i])
+                let cleanText = cleanLines.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+                return (cleanText, Array(chips.prefix(3)))
+            }
+        }
+        return (text, [])
+    }
+
+    // MARK: - Contextual chip generation (local fallback)
+    private func generateContextualChips(userMessage: String, aiResponse: String) {
+        let lower = userMessage.lowercased()
+        var chips: [String] = []
+
+        // Intent-based suggestions
+        if lower.contains("no") || lower.contains("decline") || lower.contains("refuse") || lower.contains("reject") {
+            chips.append("Make it firmer")
+        }
+        if lower.contains("sorry") || lower.contains("apologize") || lower.contains("apology") {
+            chips.append("Sound more sincere")
+        }
+        if lower.contains("email") || lower.contains("professional") || lower.contains("formal") || lower.contains("work") {
+            chips.append("More formal")
+        }
+        if aiResponse.count > 250 || lower.contains("shorter") || lower.contains("brief") || lower.contains("concise") {
+            chips.append("Make it shorter")
+        }
+        if lower.contains("assertive") || lower.contains("confident") || lower.contains("bold") {
+            chips.append("More assertive")
+        }
+        if lower.contains("polite") || lower.contains("kind") || lower.contains("gentle") {
+            chips.append("More polite")
+        }
+        if lower.contains("urgent") || lower.contains("deadline") || lower.contains("asap") {
+            chips.append("Add urgency")
+        }
+
+        // Pad to 3 with smart defaults
+        let defaults = ["Rephrase this", "Make it shorter", "More assertive", "More casual", "Add detail", "Simpler words"]
+        for d in defaults where chips.count < 3 {
+            if !chips.contains(d) { chips.append(d) }
+        }
+
+        contextualChips = Array(chips.prefix(3))
     }
 
     var canSend: Bool {

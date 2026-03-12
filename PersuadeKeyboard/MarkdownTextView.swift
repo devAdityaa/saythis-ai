@@ -11,7 +11,7 @@ struct MarkdownTextView: View {
         ) {
             Text(attributed)
                 .font(.system(size: 15))
-                .foregroundColor(.white.opacity(0.92))
+                .foregroundColor(AppTheme.text.opacity(0.92))
                 .lineSpacing(4)
                 .textSelection(.enabled)
                 .tint(AppTheme.accent)
@@ -19,7 +19,7 @@ struct MarkdownTextView: View {
             // Fallback: plain text
             Text(text)
                 .font(.system(size: 15))
-                .foregroundColor(.white.opacity(0.92))
+                .foregroundColor(AppTheme.text.opacity(0.92))
                 .lineSpacing(4)
                 .textSelection(.enabled)
         }

@@ -9,7 +9,7 @@ struct ChatSidebarView: View {
             HStack {
                 Text("Chats")
                     .font(.system(size: 20, weight: .bold))
-                    .foregroundColor(.white)
+                    .foregroundColor(AppTheme.text)
                 Spacer()
                 Button {
                     viewModel.startNewChat()
@@ -28,8 +28,8 @@ struct ChatSidebarView: View {
             .padding(.bottom, 18)
 
             Rectangle()
-                .fill(Color.white.opacity(0.06))
-                .frame(height: 0.5)
+                .fill(AppTheme.surfaceBorder)
+                .frame(height: 1)
 
             // ── Conversation list ──
             if viewModel.store.conversations.isEmpty {
@@ -58,7 +58,7 @@ struct ChatSidebarView: View {
                 }
             }
         }
-        .background(AppTheme.card)
+        .background(AppTheme.bg)
         .ignoresSafeArea(edges: .vertical)
     }
 
@@ -68,9 +68,8 @@ struct ChatSidebarView: View {
             viewModel.loadConversation(conversation)
         } label: {
             HStack(spacing: 12) {
-                // Chat icon
                 Circle()
-                    .fill(isActive(conversation) ? AppTheme.accent.opacity(0.15) : AppTheme.card2)
+                    .fill(isActive(conversation) ? AppTheme.accent.opacity(0.15) : AppTheme.accent.opacity(0.05))
                     .frame(width: 36, height: 36)
                     .overlay(
                         Image(systemName: "bubble.left.fill")
@@ -81,7 +80,7 @@ struct ChatSidebarView: View {
                 VStack(alignment: .leading, spacing: 3) {
                     Text(conversation.displayTitle)
                         .font(.system(size: 14, weight: .medium))
-                        .foregroundColor(isActive(conversation) ? .white : AppTheme.subtext)
+                        .foregroundColor(isActive(conversation) ? AppTheme.text : AppTheme.subtext)
                         .lineLimit(1)
 
                     Text(relativeTime(conversation.updatedAt))
@@ -97,7 +96,7 @@ struct ChatSidebarView: View {
                         .foregroundColor(AppTheme.subtext.opacity(0.4))
                         .padding(.horizontal, 6)
                         .padding(.vertical, 2)
-                        .background(AppTheme.card2)
+                        .background(AppTheme.accent.opacity(0.05))
                         .clipShape(Capsule())
                 }
             }

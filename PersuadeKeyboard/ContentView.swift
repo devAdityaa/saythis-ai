@@ -11,7 +11,7 @@ struct ContentView: View {
     var body: some View {
         Group {
             if isAuthenticated {
-                HomeView(isAuthenticated: $isAuthenticated)
+                MainTabView(isAuthenticated: $isAuthenticated)
                     .transition(.opacity)
             } else {
                 AuthView(isAuthenticated: $isAuthenticated)

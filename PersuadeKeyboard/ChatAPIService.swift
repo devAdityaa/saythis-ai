@@ -287,6 +287,22 @@ Rules:
 • Do NOT add any text outside these blocks.
 """
 
+    // MARK: - Chips instruction (appended to every request)
+    private static let chipsInstruction = """
+
+
+---
+
+## FOLLOW-UP SUGGESTIONS (MANDATORY)
+
+At the very end of your response, on its own line, include exactly this format:
+
+[CHIPS] suggestion1 | suggestion2 | suggestion3
+
+These are 3 short (2-5 word) follow-up actions the user might want next. Examples: "Make it shorter", "More formal", "Add urgency", "Softer tone", "More detail", "Rephrase this".
+Make them contextually relevant to what the user asked and what you just wrote. Do NOT explain them — just list them after [CHIPS].
+"""
+
     // MARK: - Retry config
     private let maxRetries = 2
     private let retryDelay: TimeInterval = 1.0
@@ -369,7 +385,7 @@ Rules:
 
             let sysPrompt = rc?.systemPrompt ?? Self.defaultSystemPrompt
             let splitInstr = rc?.splitModeInstruction ?? Self.defaultSplitModeInstruction
-            let instructions = splitMode ? sysPrompt + splitInstr : sysPrompt
+            let instructions = (splitMode ? sysPrompt + splitInstr : sysPrompt) + Self.chipsInstruction
 
             var body = ResponsesRequest(
                 model: rc?.model ?? "gpt-4.1-mini",

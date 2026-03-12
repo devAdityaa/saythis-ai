@@ -6,91 +6,104 @@ struct ChatView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var viewModel = ChatViewModel()
 
-    // Typing indicator — guard flag + phase
+    // Typing indicator
     @State private var typingStarted = false
     @State private var dotPhase: Int = 0
+    @State private var blobPulse = false
 
     var body: some View {
         @Bindable var vm = viewModel
 
-        ZStack {
-            AppTheme.bg.ignoresSafeArea()
+        VStack(spacing: 0) {
+            // ── Header ──
+            chatHeader
 
-            VStack(spacing: 0) {
-                // ── Top bar ──
-                chatTopBar
-
-                // ── Messages ──
-                ScrollViewReader { proxy in
-                    ScrollView(showsIndicators: false) {
-                        LazyVStack(spacing: 10) {
-                            if viewModel.messages.isEmpty && !viewModel.isGenerating {
-                                emptyState
-                            }
-
-                            // ── Message list with grouping logic ──
-                            ForEach(Array(viewModel.messages.enumerated()), id: \.element.id) { index, message in
-
-                                let isLastInAssistantGroup: Bool = {
-                                    guard message.role == .assistant else { return false }
-                                    let next = index + 1
-                                    if next >= viewModel.messages.count { return true }
-                                    return viewModel.messages[next].role != .assistant
-                                }()
-
-                                let shouldShowCopy: Bool = {
-                                    guard message.role == .assistant else { return false }
-                                    if !viewModel.splitMode { return true }
-                                    return message.isMainReply
-                                }()
-
-                                ChatBubbleView(
-                                    message: message,
-                                    showAvatar: isLastInAssistantGroup,
-                                    showCopy: shouldShowCopy
-                                )
-                                .id(message.id)
-                                .transition(.opacity.combined(with: .move(edge: .bottom)))
-                            }
-
-                            // Typing indicator
-                            if viewModel.isGenerating {
-                                typingIndicator
-                                    .id("typing")
-                                    .transition(.opacity)
-                            }
-
-                            // Error
-                            if let error = viewModel.errorMessage {
-                                errorBanner(error)
-                            }
-
-                            // Bottom spacer for scroll
-                            Color.clear.frame(height: 4).id("bottom")
+            // ── Messages ──
+            ScrollViewReader { proxy in
+                ScrollView(showsIndicators: false) {
+                    LazyVStack(spacing: 10) {
+                        if viewModel.messages.isEmpty && !viewModel.isGenerating {
+                            emptyState
                         }
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 12)
-                        .animation(.easeOut(duration: 0.25), value: viewModel.messages.count)
+
+                        // ── Status pill ──
+                        if !viewModel.messages.isEmpty {
+                            statusPill
+                                .padding(.bottom, 8)
+                        }
+
+                        // ── Message list ──
+                        ForEach(Array(viewModel.messages.enumerated()), id: \.element.id) { index, message in
+
+                            let isLastInAssistantGroup: Bool = {
+                                guard message.role == .assistant else { return false }
+                                let next = index + 1
+                                if next >= viewModel.messages.count { return true }
+                                return viewModel.messages[next].role != .assistant
+                            }()
+
+                            let shouldShowCopy: Bool = {
+                                guard message.role == .assistant else { return false }
+                                if !viewModel.splitMode { return true }
+                                return message.isMainReply
+                            }()
+
+                            ChatBubbleView(
+                                message: message,
+                                showAvatar: isLastInAssistantGroup,
+                                showCopy: shouldShowCopy
+                            )
+                            .id(message.id)
+                            .transition(.opacity.combined(with: .move(edge: .bottom)))
+                        }
+
+                        // Typing indicator
+                        if viewModel.isGenerating {
+                            typingIndicator
+                                .id("typing")
+                                .transition(.opacity)
+                        }
+
+                        // Error
+                        if let error = viewModel.errorMessage {
+                            errorBanner(error)
+                        }
+
+                        // Bottom spacer
+                        Color.clear.frame(height: 4).id("bottom")
                     }
-                    .scrollDismissesKeyboard(.interactively)
-                    .onChange(of: viewModel.messages.count) { _, _ in
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 12)
+                    .animation(.easeOut(duration: 0.25), value: viewModel.messages.count)
+                }
+                .scrollDismissesKeyboard(.interactively)
+                .simultaneousGesture(
+                    TapGesture().onEnded {
+                        UIApplication.shared.sendAction(
+                            #selector(UIResponder.resignFirstResponder),
+                            to: nil, from: nil, for: nil
+                        )
+                    }
+                )
+                .onChange(of: viewModel.messages.count) { _, _ in
+                    withAnimation(.easeOut(duration: 0.3)) {
+                        proxy.scrollTo("bottom", anchor: .bottom)
+                    }
+                }
+                .onChange(of: viewModel.isGenerating) { _, generating in
+                    if generating {
                         withAnimation(.easeOut(duration: 0.3)) {
-                            proxy.scrollTo("bottom", anchor: .bottom)
-                        }
-                    }
-                    .onChange(of: viewModel.isGenerating) { _, generating in
-                        if generating {
-                            withAnimation(.easeOut(duration: 0.3)) {
-                                proxy.scrollTo("typing", anchor: .bottom)
-                            }
+                            proxy.scrollTo("typing", anchor: .bottom)
                         }
                     }
                 }
-
-                // ── Input bar ──
-                ChatInputBar(viewModel: viewModel)
             }
 
+            // ── Input bar ──
+            ChatInputBar(viewModel: viewModel)
+        }
+        .background(AppTheme.bg)
+        .overlay {
             // ── Sidebar overlay ──
             if viewModel.showSidebar {
                 ZStack(alignment: .leading) {
@@ -136,39 +149,37 @@ struct ChatView: View {
         }
     }
 
-    // MARK: - Top Bar
-    private var chatTopBar: some View {
+    // MARK: - Header (matches design workspace header)
+    private var chatHeader: some View {
         HStack(spacing: 12) {
-            // Sidebar toggle
+            // Sidebar toggle with icon container
             Button {
                 withAnimation(.easeInOut(duration: 0.25)) {
                     viewModel.showSidebar.toggle()
                 }
             } label: {
-                Image(systemName: "line.3.horizontal")
+                Image(systemName: "brain.head.profile")
                     .font(.system(size: 16, weight: .semibold))
-                    .foregroundColor(.white)
-                    .frame(width: 36, height: 36)
-                    .background(AppTheme.card)
-                    .clipShape(Circle())
+                    .foregroundColor(AppTheme.accent)
+                    .frame(width: 38, height: 38)
+                    .background(AppTheme.accent.opacity(0.10))
+                    .clipShape(RoundedRectangle(cornerRadius: 10))
             }
 
-            // Title
+            // Title + subtitle
             VStack(alignment: .leading, spacing: 1) {
                 Text("Think")
-                    .font(.system(size: 17, weight: .bold))
-                    .foregroundColor(AppTheme.accent)
-                if let conv = viewModel.currentConversation, conv.messages.count > 0 {
-                    Text(conv.displayTitle)
-                        .font(.system(size: 11))
-                        .foregroundColor(AppTheme.subtext)
-                        .lineLimit(1)
-                }
+                    .font(.system(size: 18, weight: .bold))
+                    .foregroundColor(AppTheme.text)
+                Text("WORKSPACE MODE")
+                    .font(.system(size: 9, weight: .bold))
+                    .tracking(1.5)
+                    .foregroundColor(AppTheme.accent.opacity(0.6))
             }
 
             Spacer()
 
-            // ── Split-mode toggle — compact circle, no text ──
+            // Split-mode toggle
             Button {
                 withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
                     viewModel.splitMode.toggle()
@@ -178,66 +189,71 @@ struct ChatView: View {
                       ? "rectangle.split.1x2.fill"
                       : "rectangle.split.1x2")
                     .font(.system(size: 14, weight: .semibold))
-                    .foregroundColor(viewModel.splitMode ? AppTheme.accent : AppTheme.subtext.opacity(0.5))
+                    .foregroundColor(viewModel.splitMode ? AppTheme.accent : AppTheme.subtext)
                     .frame(width: 36, height: 36)
-                    .background(
-                        viewModel.splitMode
-                            ? AppTheme.accent.opacity(0.10)
-                            : AppTheme.card
-                    )
+                    .background(AppTheme.accent.opacity(0.08))
                     .clipShape(Circle())
-                    .overlay(
-                        Circle()
-                            .strokeBorder(
-                                viewModel.splitMode ? AppTheme.accent.opacity(0.25) : Color.clear,
-                                lineWidth: 1
-                            )
-                    )
             }
 
-            // New chat
+            // Chat history
             Button {
-                viewModel.startNewChat()
+                withAnimation(.easeInOut(duration: 0.25)) {
+                    viewModel.showSidebar.toggle()
+                }
             } label: {
-                Image(systemName: "square.and.pencil")
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundColor(AppTheme.accent)
-                    .frame(width: 36, height: 36)
-                    .background(AppTheme.accent.opacity(0.1))
-                    .clipShape(Circle())
-            }
-
-            // Close
-            Button { dismiss() } label: {
-                Image(systemName: "xmark")
-                    .font(.system(size: 13, weight: .semibold))
+                Image(systemName: "ellipsis")
+                    .font(.system(size: 16, weight: .semibold))
                     .foregroundColor(AppTheme.subtext)
                     .frame(width: 36, height: 36)
-                    .background(AppTheme.card)
+                    .background(AppTheme.accent.opacity(0.08))
                     .clipShape(Circle())
             }
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
-        .background(AppTheme.bg)
+        .background(
+            AppTheme.glassBackground
+                .overlay(
+                    Rectangle()
+                        .fill(AppTheme.surfaceBorder)
+                        .frame(height: 1),
+                    alignment: .bottom
+                )
+        )
+    }
+
+    // MARK: - Status Pill
+    private var statusPill: some View {
+        HStack {
+            Spacer()
+            Text("Drafting Session \u{2022} Active")
+                .font(.system(size: 10, weight: .medium))
+                .tracking(0.5)
+                .textCase(.uppercase)
+                .foregroundColor(AppTheme.accent.opacity(0.5))
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .background(AppTheme.accent.opacity(0.05))
+                .clipShape(Capsule())
+                .overlay(
+                    Capsule()
+                        .strokeBorder(AppTheme.accent.opacity(0.10), lineWidth: 1)
+                )
+            Spacer()
+        }
     }
 
     // MARK: - Empty State
     private var emptyState: some View {
         VStack(spacing: 16) {
-            Spacer().frame(height: 80)
+            Spacer().frame(height: 60)
 
-            // Use the app logo
-            Image("persuadeKeyboardLogo")
-                .resizable()
-                .aspectRatio(contentMode: .fill)
-                .frame(width: 64, height: 64)
-                .clipShape(Circle())
-                .shadow(color: AppTheme.accent.opacity(0.25), radius: 16, y: 4)
+            // AI avatar blob
+            BlobView(size: 88, interactive: false)
 
             Text(RemoteConfigService.shared.cached?.ui.thinkEmptyStateTitle ?? "Think")
-                .font(.system(size: 20, weight: .bold))
-                .foregroundColor(.white)
+                .font(.system(size: 22, weight: .bold))
+                .foregroundColor(AppTheme.text)
 
             Text({
                 let t = RemoteConfigService.shared.cached?.ui.thinkEmptyStateSubtitle
@@ -248,7 +264,7 @@ struct ChatView: View {
                 .multilineTextAlignment(.center)
                 .lineSpacing(3)
 
-            // Quick prompts (dynamic from control panel)
+            // Quick prompts
             VStack(spacing: 8) {
                 let configPrompts = RemoteConfigService.shared.cached?.ui.quickPrompts
                 let prompts = (configPrompts?.isEmpty == false ? configPrompts : nil) ?? [
@@ -283,45 +299,39 @@ struct ChatView: View {
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 11)
-            .background(AppTheme.card)
+            .background(AppTheme.accent.opacity(0.05))
             .clipShape(RoundedRectangle(cornerRadius: 12))
             .overlay(
                 RoundedRectangle(cornerRadius: 12)
-                    .strokeBorder(Color.white.opacity(0.04), lineWidth: 1)
+                    .strokeBorder(AppTheme.accent.opacity(0.10), lineWidth: 1)
             )
         }
     }
 
-    // MARK: - Typing Indicator (3 animated dots — contained)
+    // MARK: - Typing Indicator (design: pulsing blob + italic text)
     private var typingIndicator: some View {
-        HStack(alignment: .bottom, spacing: 8) {
-            // Bot logo avatar
-            Image("persuadeKeyboardLogo")
-                .resizable()
-                .aspectRatio(contentMode: .fill)
-                .frame(width: 26, height: 26)
-                .clipShape(Circle())
+        HStack(spacing: 8) {
+            // AI avatar blob — fades in/out while drafting
+            BlobView(size: 28, interactive: false)
+                .frame(width: 28, height: 28)
+                .opacity(blobPulse ? 1.0 : 0.35)
+                .animation(.easeInOut(duration: 1.0).repeatForever(autoreverses: true), value: blobPulse)
+                .onAppear { blobPulse = true }
+                .onDisappear { blobPulse = false }
 
             HStack(spacing: 6) {
-                ForEach(0..<3, id: \.self) { i in
-                    Circle()
-                        .fill(AppTheme.accent.opacity(dotPhase == i ? 0.9 : 0.35))
-                        .frame(width: 7, height: 7)
-                        .scaleEffect(dotPhase == i ? 1.25 : 1.0)
-                }
+                Image(systemName: "pencil")
+                    .font(.system(size: 11))
+                    .foregroundColor(AppTheme.accent.opacity(0.3))
+                Text("Drafting alternatives...")
+                    .font(.system(size: 11, weight: .medium))
+                    .italic()
+                    .foregroundColor(AppTheme.accent.opacity(0.3))
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 14)
-            .background(AppTheme.card)
-            .clipShape(RoundedRectangle(cornerRadius: 18))
-            .overlay(
-                RoundedRectangle(cornerRadius: 18)
-                    .strokeBorder(Color.white.opacity(0.04), lineWidth: 1)
-            )
-            .animation(.easeInOut(duration: 0.45), value: dotPhase)
 
             Spacer()
         }
+        .padding(.leading, 4)
     }
 
     private func startTypingAnimation() {
@@ -358,7 +368,7 @@ struct ChatView: View {
     }
 }
 
-// MARK: - Camera Picker (UIKit wrapper — same pattern as AnalyzeView)
+// MARK: - Camera Picker (UIKit wrapper)
 struct ChatCameraPickerView: UIViewControllerRepresentable {
     let onPick: (UIImage?) -> Void
     @Environment(\.dismiss) private var dismiss

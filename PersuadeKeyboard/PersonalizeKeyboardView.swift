@@ -12,9 +12,9 @@ struct KeyboardThemeOption: Identifiable {
     static let all: [KeyboardThemeOption] = [
         KeyboardThemeOption(
             id: "default_dark", name: "Default Dark",
-            bg:     Color(red: 9/255,   green: 14/255,  blue: 23/255),
-            card:   Color(red: 18/255,  green: 30/255,  blue: 46/255),
-            accent: Color(red: 0/255,   green: 200/255, blue: 200/255)
+            bg:     Color(red: 16/255, green: 34/255,  blue: 34/255),
+            card:   Color(red: 19/255, green: 236/255, blue: 236/255).opacity(0.05),
+            accent: Color(red: 19/255, green: 236/255, blue: 236/255)
         ),
         KeyboardThemeOption(
             id: "ocean_blue", name: "Ocean Blue",
@@ -58,7 +58,7 @@ private let modeIconOptions: [(String, String)] = [
     ("envelope.fill",                "Email")
 ]
 
-// MARK: - Personalize Keyboard View
+// MARK: - Personalize Keyboard View (redesigned for new design language)
 
 struct PersonalizeKeyboardView: View {
     @Environment(\.dismiss) private var dismiss
@@ -80,56 +80,39 @@ struct PersonalizeKeyboardView: View {
     private let themeKey = "keyboard_theme"
 
     var body: some View {
-        ScrollView(showsIndicators: false) {
-            VStack(spacing: 20) {
-                // ── Header ──
-                HStack {
-                    Button { dismiss() } label: {
-                        Image(systemName: "chevron.left")
-                            .font(.system(size: 16, weight: .semibold))
-                            .foregroundColor(.white)
-                            .frame(width: 36, height: 36)
-                            .background(AppTheme.card)
-                            .clipShape(Circle())
+        VStack(spacing: 0) {
+            // ── Header (matching workspace header style) ──
+            stylesHeader
+
+            ScrollView(showsIndicators: false) {
+                VStack(spacing: 16) {
+                    if isLoading {
+                        ProgressView()
+                            .tint(AppTheme.accent)
+                            .padding(.top, 40)
+                    } else {
+                        // ── Theme Section ──
+                        themeSection
+
+                        // ── Generation Modes Section ──
+                        modesSection
+
+                        // ── Save ──
+                        saveButton
+
+                        if let errorMessage {
+                            Text(errorMessage)
+                                .font(.system(size: 13))
+                                .foregroundColor(AppTheme.danger)
+                                .transition(.opacity)
+                        }
                     }
-                    Spacer()
+
+                    Spacer(minLength: 16)
                 }
-
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Personalize")
-                        .font(.system(size: 28, weight: .bold))
-                        .foregroundColor(.white)
-                    Text("Customize your keyboard theme and AI modes")
-                        .font(.system(size: 13))
-                        .foregroundColor(AppTheme.subtext)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-
-                if isLoading {
-                    ProgressView()
-                        .tint(AppTheme.accent)
-                        .padding(.top, 40)
-                } else {
-                    // ── Theme Section ──
-                    themeSection
-
-                    // ── Generation Modes Section ──
-                    modesSection
-
-                    // ── Save ──
-                    saveButton
-
-                    if let errorMessage {
-                        Text(errorMessage)
-                            .font(.caption)
-                            .foregroundColor(AppTheme.danger)
-                            .transition(.opacity)
-                    }
-                }
-
-                Spacer(minLength: 40)
+                .padding(.horizontal, 20)
+                .padding(.top, 8)
             }
-            .padding(.horizontal, 20)
         }
         .background(AppTheme.bg.ignoresSafeArea())
         .navigationBarHidden(true)
@@ -140,6 +123,41 @@ struct PersonalizeKeyboardView: View {
                 saveModesLocally()
             }
         }
+    }
+
+    // MARK: - Header
+    private var stylesHeader: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "paintbrush.pointed.fill")
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundColor(AppTheme.accent)
+                .frame(width: 38, height: 38)
+                .background(AppTheme.accent.opacity(0.10))
+                .clipShape(RoundedRectangle(cornerRadius: 10))
+
+            VStack(alignment: .leading, spacing: 1) {
+                Text("Styles")
+                    .font(.system(size: 18, weight: .bold))
+                    .foregroundColor(AppTheme.text)
+                Text("PERSONALIZE")
+                    .font(.system(size: 9, weight: .bold))
+                    .tracking(1.5)
+                    .foregroundColor(AppTheme.accent.opacity(0.6))
+            }
+
+            Spacer()
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+        .background(
+            AppTheme.glassBackground
+                .overlay(
+                    Rectangle()
+                        .fill(AppTheme.surfaceBorder)
+                        .frame(height: 1),
+                    alignment: .bottom
+                )
+        )
     }
 
     // MARK: - Theme Section
@@ -160,8 +178,12 @@ struct PersonalizeKeyboardView: View {
             }
         }
         .padding(16)
-        .background(AppTheme.card)
+        .background(AppTheme.accent.opacity(0.05))
         .clipShape(RoundedRectangle(cornerRadius: 16))
+        .overlay(
+            RoundedRectangle(cornerRadius: 16)
+                .strokeBorder(AppTheme.accent.opacity(0.10), lineWidth: 1)
+        )
     }
 
     // MARK: - Modes Section
@@ -218,8 +240,12 @@ struct PersonalizeKeyboardView: View {
             }
         }
         .padding(16)
-        .background(AppTheme.card)
+        .background(AppTheme.accent.opacity(0.05))
         .clipShape(RoundedRectangle(cornerRadius: 16))
+        .overlay(
+            RoundedRectangle(cornerRadius: 16)
+                .strokeBorder(AppTheme.accent.opacity(0.10), lineWidth: 1)
+        )
     }
 
     // MARK: - Save Button
@@ -228,19 +254,20 @@ struct PersonalizeKeyboardView: View {
         Button(action: saveSettings) {
             HStack(spacing: 8) {
                 if isSaving {
-                    ProgressView().tint(.black)
+                    ProgressView().tint(Color(red: 16/255, green: 34/255, blue: 34/255))
                 } else {
                     Image(systemName: saveSuccess ? "checkmark.circle.fill" : "square.and.arrow.down")
                         .font(.system(size: 14))
                 }
                 Text(saveSuccess ? "Saved!" : "Save Changes")
-                    .font(.system(size: 15, weight: .semibold))
+                    .font(.system(size: 15, weight: .bold))
             }
             .frame(maxWidth: .infinity)
-            .padding(.vertical, 14)
+            .padding(.vertical, 16)
             .background(saveSuccess ? Color.green.opacity(0.85) : AppTheme.accent)
-            .foregroundColor(.black)
+            .foregroundColor(Color(red: 16/255, green: 34/255, blue: 34/255))
             .clipShape(RoundedRectangle(cornerRadius: 14))
+            .shadow(color: AppTheme.accent.opacity(0.25), radius: 16, y: 4)
         }
         .disabled(isSaving)
         .opacity(isSaving ? 0.7 : 1)
@@ -253,8 +280,8 @@ struct PersonalizeKeyboardView: View {
             Image(systemName: icon)
                 .foregroundColor(AppTheme.accent)
             Text(title)
-                .font(.system(size: 16, weight: .semibold))
-                .foregroundColor(.white)
+                .font(.system(size: 16, weight: .bold))
+                .foregroundColor(AppTheme.text)
         }
     }
 
@@ -281,13 +308,11 @@ struct PersonalizeKeyboardView: View {
         withAnimation { errorMessage = nil; saveSuccess = false }
         isSaving = true
 
-        // Save theme locally
         UserScopedStorage.setShared(selectedTheme, forKey: themeKey)
-
-        // Save modes locally
+        // Also write plain key to App Group so keyboard extension can read it
+        UserDefaults(suiteName: UserScopedStorage.appGroupID)?.set(selectedTheme, forKey: themeKey)
         GenerationModeStore.saveModes(modes)
 
-        // Sync theme to backend
         APIService.shared.updateSettings(theme: selectedTheme) { result in
             isSaving = false
             withAnimation { saveSuccess = true }
@@ -308,10 +333,9 @@ private struct ModeCard: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // ── Header row (always visible) ──
+            // Header row
             Button(action: onTap) {
                 HStack(spacing: 10) {
-                    // Icon pill
                     Image(systemName: mode.icon)
                         .font(.system(size: 13, weight: .semibold))
                         .foregroundColor(AppTheme.accent)
@@ -323,7 +347,7 @@ private struct ModeCard: View {
                         HStack(spacing: 6) {
                             Text(mode.name)
                                 .font(.system(size: 14, weight: .semibold))
-                                .foregroundColor(.white)
+                                .foregroundColor(AppTheme.text)
                             if mode.isBuiltIn {
                                 Text("Built-in")
                                     .font(.system(size: 9, weight: .bold))
@@ -350,15 +374,15 @@ private struct ModeCard: View {
             }
             .buttonStyle(.plain)
 
-            // ── Expanded editor ──
+            // Expanded editor
             if isExpanded {
                 VStack(alignment: .leading, spacing: 10) {
-                    Divider()
-                        .background(Color.white.opacity(0.05))
+                    Rectangle()
+                        .fill(AppTheme.surfaceBorder)
+                        .frame(height: 1)
                         .padding(.horizontal, 12)
 
                     if mode.isBuiltIn {
-                        // Built-in: only show custom instructions field
                         VStack(alignment: .leading, spacing: 6) {
                             Text("Custom Instructions")
                                 .font(.system(size: 12, weight: .medium))
@@ -372,16 +396,20 @@ private struct ModeCard: View {
 
                             TextEditor(text: $mode.userInstructions)
                                 .font(.system(size: 13))
-                                .foregroundColor(.white)
+                                .foregroundColor(AppTheme.text)
                                 .scrollContentBackground(.hidden)
                                 .padding(10)
                                 .frame(minHeight: 80, maxHeight: 140)
-                                .background(AppTheme.card2)
+                                .background(AppTheme.accent.opacity(0.05))
                                 .clipShape(RoundedRectangle(cornerRadius: 10))
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 10)
+                                        .strokeBorder(AppTheme.accent.opacity(0.10), lineWidth: 1)
+                                )
                                 .padding(.horizontal, 12)
+                                .tint(AppTheme.accent)
                         }
                     } else {
-                        // Custom mode: full editor
                         VStack(alignment: .leading, spacing: 10) {
                             // Name
                             VStack(alignment: .leading, spacing: 4) {
@@ -390,11 +418,16 @@ private struct ModeCard: View {
                                     .foregroundColor(AppTheme.subtext)
                                 TextField("Mode name", text: $mode.name)
                                     .font(.system(size: 13))
-                                    .foregroundColor(.white)
+                                    .foregroundColor(AppTheme.text)
                                     .padding(.horizontal, 12)
                                     .padding(.vertical, 9)
-                                    .background(AppTheme.card2)
+                                    .background(AppTheme.accent.opacity(0.05))
                                     .clipShape(RoundedRectangle(cornerRadius: 10))
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 10)
+                                            .strokeBorder(AppTheme.accent.opacity(0.10), lineWidth: 1)
+                                    )
+                                    .tint(AppTheme.accent)
                             }
                             .padding(.horizontal, 12)
 
@@ -411,9 +444,9 @@ private struct ModeCard: View {
                                             } label: {
                                                 Image(systemName: iconName)
                                                     .font(.system(size: 14))
-                                                    .foregroundColor(mode.icon == iconName ? .black : AppTheme.subtext)
+                                                    .foregroundColor(mode.icon == iconName ? Color(red: 16/255, green: 34/255, blue: 34/255) : AppTheme.subtext)
                                                     .frame(width: 34, height: 34)
-                                                    .background(mode.icon == iconName ? AppTheme.accent : AppTheme.card2)
+                                                    .background(mode.icon == iconName ? AppTheme.accent : AppTheme.accent.opacity(0.05))
                                                     .clipShape(RoundedRectangle(cornerRadius: 8))
                                             }
                                         }
@@ -443,12 +476,17 @@ private struct ModeCard: View {
                                     .foregroundColor(AppTheme.subtext)
                                 TextEditor(text: $mode.baseSystemPrompt)
                                     .font(.system(size: 13))
-                                    .foregroundColor(.white)
+                                    .foregroundColor(AppTheme.text)
                                     .scrollContentBackground(.hidden)
                                     .padding(10)
                                     .frame(minHeight: 100, maxHeight: 160)
-                                    .background(AppTheme.card2)
+                                    .background(AppTheme.accent.opacity(0.05))
                                     .clipShape(RoundedRectangle(cornerRadius: 10))
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 10)
+                                            .strokeBorder(AppTheme.accent.opacity(0.10), lineWidth: 1)
+                                    )
+                                    .tint(AppTheme.accent)
                             }
                             .padding(.horizontal, 12)
 
@@ -476,11 +514,11 @@ private struct ModeCard: View {
                 .transition(.opacity.combined(with: .move(edge: .top)))
             }
         }
-        .background(AppTheme.card2)
+        .background(AppTheme.accent.opacity(0.03))
         .clipShape(RoundedRectangle(cornerRadius: 14))
         .overlay(
             RoundedRectangle(cornerRadius: 14)
-                .strokeBorder(Color.white.opacity(0.05), lineWidth: 1)
+                .strokeBorder(AppTheme.accent.opacity(0.08), lineWidth: 1)
         )
         .animation(.easeInOut(duration: 0.2), value: isExpanded)
     }
@@ -492,10 +530,10 @@ private struct ModeCard: View {
         } label: {
             Text(label)
                 .font(.system(size: 12, weight: .medium))
-                .foregroundColor(mode.inputSource == source ? .black : AppTheme.subtext)
+                .foregroundColor(mode.inputSource == source ? Color(red: 16/255, green: 34/255, blue: 34/255) : AppTheme.subtext)
                 .padding(.horizontal, 12)
                 .padding(.vertical, 6)
-                .background(mode.inputSource == source ? AppTheme.accent : AppTheme.card)
+                .background(mode.inputSource == source ? AppTheme.accent : AppTheme.accent.opacity(0.05))
                 .clipShape(Capsule())
         }
     }
@@ -521,12 +559,17 @@ private struct AddModeSheet: View {
                         Text("Mode Name")
                             .font(.system(size: 13, weight: .medium))
                             .foregroundColor(AppTheme.subtext)
-                        TextField("e.g. Follow-Up, Cold Pitch…", text: $name)
+                        TextField("e.g. Follow-Up, Cold Pitch...", text: $name)
                             .font(.system(size: 14))
-                            .foregroundColor(.white)
+                            .foregroundColor(AppTheme.text)
                             .padding(12)
-                            .background(AppTheme.card)
+                            .background(AppTheme.accent.opacity(0.05))
                             .clipShape(RoundedRectangle(cornerRadius: 12))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 12)
+                                    .strokeBorder(AppTheme.accent.opacity(0.10), lineWidth: 1)
+                            )
+                            .tint(AppTheme.accent)
                     }
 
                     // Icon
@@ -539,10 +582,10 @@ private struct AddModeSheet: View {
                                 Button { icon = iconName } label: {
                                     Image(systemName: iconName)
                                         .font(.system(size: 14))
-                                        .foregroundColor(icon == iconName ? .black : AppTheme.subtext)
+                                        .foregroundColor(icon == iconName ? Color(red: 16/255, green: 34/255, blue: 34/255) : AppTheme.subtext)
                                         .frame(maxWidth: .infinity)
                                         .frame(height: 38)
-                                        .background(icon == iconName ? AppTheme.accent : AppTheme.card)
+                                        .background(icon == iconName ? AppTheme.accent : AppTheme.accent.opacity(0.05))
                                         .clipShape(RoundedRectangle(cornerRadius: 8))
                                 }
                             }
@@ -559,10 +602,10 @@ private struct AddModeSheet: View {
                                 Button { inputSource = src } label: {
                                     Text(label)
                                         .font(.system(size: 13, weight: .medium))
-                                        .foregroundColor(inputSource == src ? .black : AppTheme.subtext)
+                                        .foregroundColor(inputSource == src ? Color(red: 16/255, green: 34/255, blue: 34/255) : AppTheme.subtext)
                                         .frame(maxWidth: .infinity)
                                         .padding(.vertical, 10)
-                                        .background(inputSource == src ? AppTheme.accent : AppTheme.card)
+                                        .background(inputSource == src ? AppTheme.accent : AppTheme.accent.opacity(0.05))
                                         .clipShape(RoundedRectangle(cornerRadius: 10))
                                 }
                             }
@@ -580,12 +623,17 @@ private struct AddModeSheet: View {
                             .lineSpacing(2)
                         TextEditor(text: $prompt)
                             .font(.system(size: 13))
-                            .foregroundColor(.white)
+                            .foregroundColor(AppTheme.text)
                             .scrollContentBackground(.hidden)
                             .padding(12)
                             .frame(minHeight: 120)
-                            .background(AppTheme.card)
+                            .background(AppTheme.accent.opacity(0.05))
                             .clipShape(RoundedRectangle(cornerRadius: 12))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 12)
+                                    .strokeBorder(AppTheme.accent.opacity(0.10), lineWidth: 1)
+                            )
+                            .tint(AppTheme.accent)
                     }
 
                     // Add button
@@ -606,8 +654,8 @@ private struct AddModeSheet: View {
                         dismiss()
                     } label: {
                         Text("Add Mode")
-                            .font(.system(size: 15, weight: .semibold))
-                            .foregroundColor(.black)
+                            .font(.system(size: 15, weight: .bold))
+                            .foregroundColor(Color(red: 16/255, green: 34/255, blue: 34/255))
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 14)
                             .background(
@@ -673,12 +721,12 @@ private struct ThemeCard: View {
                     .foregroundColor(isSelected ? theme.accent : AppTheme.subtext)
             }
             .padding(10)
-            .background(isSelected ? theme.accent.opacity(0.08) : AppTheme.card2)
+            .background(isSelected ? theme.accent.opacity(0.08) : AppTheme.accent.opacity(0.03))
             .clipShape(RoundedRectangle(cornerRadius: 12))
             .overlay(
                 RoundedRectangle(cornerRadius: 12)
                     .strokeBorder(
-                        isSelected ? theme.accent : Color.white.opacity(0.06),
+                        isSelected ? theme.accent : AppTheme.accent.opacity(0.08),
                         lineWidth: isSelected ? 1.5 : 1
                     )
             )

@@ -30,7 +30,6 @@ enum ResponseChannel: String, CaseIterable, Identifiable {
         }
     }
 
-    // User-facing prompt injected alongside the screenshot (uses live config, falls back to defaults)
     func userPrompt(from config: RemoteConfig?) -> String {
         let channels = config?.screenshotReply.channels
         switch self {
@@ -142,17 +141,18 @@ enum ResponseChannel: String, CaseIterable, Identifiable {
             """
 }
 
-// MARK: - Analyze View
+// MARK: - Analyze View (redesigned to match premium design language)
 struct AnalyzeView: View {
     @Environment(\.dismiss) private var dismiss
 
     // State
     @State private var selectedChannel: ResponseChannel = .email
     @State private var context = ""
-    @State private var selectedImage: UIImage?
+    @State private var selectedImages: [UIImage] = []
+    @State private var cameraCapture: UIImage?
     @State private var showPhotoPicker = false
     @State private var showCamera     = false
-    @State private var photoItem: PhotosPickerItem?
+    @State private var photoItems: [PhotosPickerItem] = []
 
     // Generation
     @State private var isGenerating   = false
@@ -166,14 +166,16 @@ struct AnalyzeView: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            // ── Header ──
+            analyzeHeader
+
             ScrollView(showsIndicators: false) {
-                VStack(spacing: 24) {
-                    headerSection
+                VStack(spacing: 20) {
                     channelSelector
                     contextField
                     imageSection
 
-                    if selectedImage != nil {
+                    if !selectedImages.isEmpty {
                         actionButtons
                     }
 
@@ -185,56 +187,77 @@ struct AnalyzeView: View {
                         replySection(generatedReply)
                     }
 
-                    Spacer(minLength: 30)
+                    Spacer(minLength: 16)
                 }
                 .padding(.horizontal, 20)
+                .padding(.top, 20)
             }
+            .scrollDismissesKeyboard(.interactively)
+            .simultaneousGesture(
+                TapGesture().onEnded {
+                    UIApplication.shared.sendAction(
+                        #selector(UIResponder.resignFirstResponder),
+                        to: nil, from: nil, for: nil
+                    )
+                }
+            )
 
             // ── Step indicator pinned at bottom ──
             stepIndicatorBar
         }
         .background(AppTheme.bg.ignoresSafeArea())
         .navigationBarHidden(true)
-        .photosPicker(isPresented: $showPhotoPicker, selection: $photoItem, matching: .images)
-        .onChange(of: photoItem) { _, newItem in loadPhoto(from: newItem) }
+        .photosPicker(isPresented: $showPhotoPicker, selection: $photoItems, maxSelectionCount: 5, matching: .images)
+        .onChange(of: photoItems) { _, newItems in loadPhotos(from: newItems) }
         .fullScreenCover(isPresented: $showCamera) {
-            CameraPickerView(image: $selectedImage).ignoresSafeArea()
+            CameraPickerView(image: $cameraCapture).ignoresSafeArea()
+        }
+        .onChange(of: cameraCapture) { _, newImage in
+            guard let img = newImage, selectedImages.count < 5 else { return }
+            withAnimation { selectedImages.append(img) }
+            cameraCapture = nil
         }
     }
 
-    // MARK: - Header
+    // MARK: - Header (matching workspace header style)
 
-    private var headerSection: some View {
-        VStack(spacing: 4) {
-            HStack {
-                Button { dismiss() } label: {
-                    Image(systemName: "chevron.left")
-                        .font(.system(size: 15, weight: .semibold))
-                        .foregroundColor(.white)
-                        .frame(width: 38, height: 38)
-                        .background(.white.opacity(0.07))
-                        .clipShape(Circle())
-                        .overlay(Circle().strokeBorder(.white.opacity(0.1), lineWidth: 1))
-                }
-                Spacer()
+    private var analyzeHeader: some View {
+        HStack(spacing: 12) {
+            // Icon container
+            Image(systemName: "camera.viewfinder")
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundColor(AppTheme.accent)
+                .frame(width: 38, height: 38)
+                .background(AppTheme.accent.opacity(0.10))
+                .clipShape(RoundedRectangle(cornerRadius: 10))
+
+            VStack(alignment: .leading, spacing: 1) {
+                Text("Analyze")
+                    .font(.system(size: 18, weight: .bold))
+                    .foregroundColor(AppTheme.text)
+                Text("SCREENSHOT REPLY")
+                    .font(.system(size: 9, weight: .bold))
+                    .tracking(1.5)
+                    .foregroundColor(AppTheme.accent.opacity(0.6))
             }
 
-            VStack(spacing: 4) {
-                Text("Screenshot Reply")
-                    .font(.system(size: 26, weight: .bold))
-                    .foregroundColor(.white)
-                Text("Confused what to reply? Screenshot it.")
-                    .font(.system(size: 13))
-                    .foregroundColor(AppTheme.subtext)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.top, 6)
+            Spacer()
         }
-        .padding(.top, 8)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+        .background(
+            AppTheme.glassBackground
+                .overlay(
+                    Rectangle()
+                        .fill(AppTheme.surfaceBorder)
+                        .frame(height: 1),
+                    alignment: .bottom
+                )
+        )
     }
 
     private func stepColor(index: Int) -> Color {
-        if selectedImage == nil { return index == 0 ? AppTheme.accent : AppTheme.subtext.opacity(0.5) }
+        if selectedImages.isEmpty { return index == 0 ? AppTheme.accent : AppTheme.subtext.opacity(0.5) }
         if generatedReply == nil { return index <= 1 ? AppTheme.accent : AppTheme.subtext.opacity(0.5) }
         return AppTheme.accent
     }
@@ -246,7 +269,7 @@ struct AnalyzeView: View {
             ForEach(Array(["Upload", "Analyze", "Reply"].enumerated()), id: \.offset) { i, step in
                 if i > 0 {
                     Rectangle()
-                        .fill(.white.opacity(0.12))
+                        .fill(AppTheme.accent.opacity(0.12))
                         .frame(width: 28, height: 1)
                 }
                 HStack(spacing: 5) {
@@ -265,7 +288,7 @@ struct AnalyzeView: View {
             AppTheme.bg
                 .overlay(
                     Rectangle()
-                        .fill(.white.opacity(0.07))
+                        .fill(AppTheme.surfaceBorder)
                         .frame(height: 1),
                     alignment: .top
                 )
@@ -277,16 +300,16 @@ struct AnalyzeView: View {
     private var channelSelector: some View {
         VStack(alignment: .leading, spacing: 10) {
             Label("Response Channel", systemImage: "arrow.triangle.branch")
-                .font(.system(size: 12, weight: .semibold))
+                .font(.system(size: 11, weight: .bold))
                 .foregroundColor(AppTheme.subtext)
                 .textCase(.uppercase)
+                .tracking(0.5)
 
             HStack(spacing: 8) {
                 ForEach(ResponseChannel.allCases) { channel in
                     ChannelPill(channel: channel, isSelected: selectedChannel == channel) {
                         withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
                             selectedChannel = channel
-                            // Reset reply when channel changes
                             if generatedReply != nil {
                                 generatedReply = nil
                                 errorMessage   = nil
@@ -305,32 +328,34 @@ struct AnalyzeView: View {
     private var contextField: some View {
         VStack(alignment: .leading, spacing: 8) {
             Label("Extra Context  \(Text("(optional)").foregroundColor(AppTheme.subtext.opacity(0.6)))", systemImage: "text.alignleft")
-                .font(.system(size: 12, weight: .semibold))
+                .font(.system(size: 11, weight: .bold))
                 .foregroundColor(AppTheme.subtext)
                 .textCase(.uppercase)
+                .tracking(0.5)
 
             ZStack(alignment: .topLeading) {
                 if context.isEmpty {
                     Text(contextPlaceholder)
                         .font(.system(size: 14))
-                        .foregroundColor(AppTheme.subtext.opacity(0.45))
+                        .foregroundColor(AppTheme.accent.opacity(0.30))
                         .padding(.horizontal, 14)
                         .padding(.vertical, 13)
                         .allowsHitTesting(false)
                 }
                 TextEditor(text: $context)
                     .font(.system(size: 14))
-                    .foregroundColor(.white)
+                    .foregroundColor(AppTheme.text)
                     .scrollContentBackground(.hidden)
                     .padding(.horizontal, 10)
                     .padding(.vertical, 8)
                     .frame(minHeight: 72, maxHeight: 110)
+                    .tint(AppTheme.accent)
             }
-            .background(AppTheme.card)
+            .background(AppTheme.accent.opacity(0.05))
             .clipShape(RoundedRectangle(cornerRadius: 14))
             .overlay(
                 RoundedRectangle(cornerRadius: 14)
-                    .strokeBorder(.white.opacity(0.07), lineWidth: 1)
+                    .strokeBorder(AppTheme.accent.opacity(0.10), lineWidth: 1)
             )
         }
     }
@@ -347,54 +372,108 @@ struct AnalyzeView: View {
 
     private var imageSection: some View {
         Group {
-            if let selectedImage {
-                imagePreview(selectedImage)
+            if !selectedImages.isEmpty {
+                imagePreview(selectedImages)
             } else {
                 uploadZone
             }
         }
-        .animation(.spring(response: 0.4, dampingFraction: 0.8), value: selectedImage != nil)
+        .animation(.spring(response: 0.4, dampingFraction: 0.8), value: selectedImages.isEmpty)
     }
 
-    private func imagePreview(_ image: UIImage) -> some View {
-        VStack(spacing: 10) {
-            ZStack(alignment: .topTrailing) {
-                Image(uiImage: image)
-                    .resizable()
-                    .aspectRatio(contentMode: .fit)
-                    .frame(maxHeight: 280)
-                    .clipShape(RoundedRectangle(cornerRadius: 16))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 16)
-                            .strokeBorder(AppTheme.accent.opacity(0.25), lineWidth: 1)
-                    )
-                    .shadow(color: AppTheme.accent.opacity(0.08), radius: 16, y: 6)
+    private func imagePreview(_ images: [UIImage]) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            // Scrollable thumbnail row
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 10) {
+                    ForEach(Array(images.enumerated()), id: \.offset) { idx, image in
+                        ZStack(alignment: .topTrailing) {
+                            Image(uiImage: image)
+                                .resizable()
+                                .aspectRatio(contentMode: .fill)
+                                .frame(width: 150, height: 120)
+                                .clipShape(RoundedRectangle(cornerRadius: 14))
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 14)
+                                        .strokeBorder(AppTheme.accent.opacity(0.18), lineWidth: 1)
+                                )
+                                .shadow(color: AppTheme.accent.opacity(0.07), radius: 8, y: 4)
 
-                // Remove button badge
+                            Button {
+                                withAnimation {
+                                    selectedImages.remove(at: idx)
+                                    photoItems = []
+                                    if selectedImages.isEmpty {
+                                        generatedReply = nil
+                                        errorMessage   = nil
+                                    }
+                                }
+                            } label: {
+                                Image(systemName: "xmark")
+                                    .font(.system(size: 10, weight: .bold))
+                                    .foregroundColor(.white)
+                                    .frame(width: 22, height: 22)
+                                    .background(.black.opacity(0.6))
+                                    .clipShape(Circle())
+                            }
+                            .padding(6)
+                        }
+                        .transition(.opacity.combined(with: .scale(scale: 0.92)))
+                    }
+
+                    // Add more slot (shown when < 5 images)
+                    if images.count < 5 {
+                        Button { showPhotoPicker = true } label: {
+                            VStack(spacing: 8) {
+                                Image(systemName: "plus")
+                                    .font(.system(size: 20, weight: .semibold))
+                                    .foregroundColor(AppTheme.accent)
+                                Text("Add more")
+                                    .font(.system(size: 11, weight: .medium))
+                                    .foregroundColor(AppTheme.subtext)
+                            }
+                            .frame(width: 150, height: 120)
+                            .background(AppTheme.accent.opacity(0.04))
+                            .clipShape(RoundedRectangle(cornerRadius: 14))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 14)
+                                    .strokeBorder(
+                                        style: StrokeStyle(lineWidth: 1.5, dash: [6, 5])
+                                    )
+                                    .foregroundColor(AppTheme.accent.opacity(0.22))
+                            )
+                        }
+                    }
+                }
+                .padding(.horizontal, 2)
+                .padding(.vertical, 4)
+            }
+
+            // Count + clear
+            HStack {
+                Text("\(images.count) / 5 screenshots")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundColor(AppTheme.subtext.opacity(0.6))
+                Spacer()
                 Button {
                     withAnimation {
-                        selectedImage  = nil
+                        selectedImages = []
+                        photoItems     = []
                         generatedReply = nil
                         errorMessage   = nil
-                        photoItem      = nil
                     }
                 } label: {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 11, weight: .bold))
-                        .foregroundColor(.white)
-                        .frame(width: 28, height: 28)
-                        .background(.black.opacity(0.55))
-                        .clipShape(Circle())
-                        .overlay(Circle().strokeBorder(.white.opacity(0.15), lineWidth: 1))
+                    Text("Clear all")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundColor(AppTheme.danger.opacity(0.75))
                 }
-                .padding(10)
             }
-            .transition(.opacity.combined(with: .scale(scale: 0.96)))
+            .padding(.horizontal, 2)
         }
     }
 
     private var uploadZone: some View {
-        VStack(spacing: 16) {
+        VStack(spacing: 14) {
             // Primary — photo library
             Button { showPhotoPicker = true } label: {
                 VStack(spacing: 14) {
@@ -410,27 +489,22 @@ struct AnalyzeView: View {
                     VStack(spacing: 4) {
                         Text("Upload Screenshot")
                             .font(.system(size: 15, weight: .semibold))
-                            .foregroundColor(.white)
-                        Text("PNG, JPG · up to 10 MB")
+                            .foregroundColor(AppTheme.text)
+                        Text("PNG, JPG up to 10 MB")
                             .font(.system(size: 12))
                             .foregroundColor(AppTheme.subtext)
                     }
                 }
                 .frame(maxWidth: .infinity)
                 .frame(height: 180)
-                .background(
-                    LinearGradient(
-                        colors: [AppTheme.card, AppTheme.card2],
-                        startPoint: .top, endPoint: .bottom
-                    )
-                )
+                .background(AppTheme.accent.opacity(0.03))
                 .clipShape(RoundedRectangle(cornerRadius: 18))
                 .overlay(
                     RoundedRectangle(cornerRadius: 18)
                         .strokeBorder(
                             style: StrokeStyle(lineWidth: 1.5, dash: [7, 5])
                         )
-                        .foregroundColor(AppTheme.accent.opacity(0.3))
+                        .foregroundColor(AppTheme.accent.opacity(0.25))
                 )
             }
 
@@ -445,31 +519,31 @@ struct AnalyzeView: View {
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 13)
                 .foregroundColor(AppTheme.subtext)
-                .background(AppTheme.card)
+                .background(AppTheme.accent.opacity(0.05))
                 .clipShape(RoundedRectangle(cornerRadius: 14))
                 .overlay(
                     RoundedRectangle(cornerRadius: 14)
-                        .strokeBorder(.white.opacity(0.06), lineWidth: 1)
+                        .strokeBorder(AppTheme.accent.opacity(0.10), lineWidth: 1)
                 )
             }
         }
     }
 
-    // MARK: - Action buttons (visible once image selected)
+    // MARK: - Action buttons
 
     private var actionButtons: some View {
         Button(action: generateReply) {
             HStack(spacing: 10) {
                 if isGenerating {
                     ProgressView()
-                        .tint(.black)
+                        .tint(Color(red: 16/255, green: 34/255, blue: 34/255))
                         .scaleEffect(0.85)
                 } else {
                     Image(systemName: "sparkles")
                         .font(.system(size: 15, weight: .semibold))
                 }
-                Text(isGenerating ? "Analyzing Screenshot…" : "Generate \(selectedChannel.rawValue) Reply")
-                    .font(.system(size: 16, weight: .semibold))
+                Text(isGenerating ? "Analyzing Screenshot..." : "Generate \(selectedChannel.rawValue) Reply")
+                    .font(.system(size: 16, weight: .bold))
             }
             .frame(maxWidth: .infinity)
             .padding(.vertical, 16)
@@ -478,9 +552,9 @@ struct AnalyzeView: View {
                     ? AppTheme.accent.opacity(0.6)
                     : AppTheme.accent
             )
-            .foregroundColor(.black)
-            .clipShape(RoundedRectangle(cornerRadius: 16))
-            .shadow(color: AppTheme.accent.opacity(0.25), radius: 12, y: 4)
+            .foregroundColor(Color(red: 16/255, green: 34/255, blue: 34/255))
+            .clipShape(RoundedRectangle(cornerRadius: 14))
+            .shadow(color: AppTheme.accent.opacity(0.25), radius: 16, y: 4)
         }
         .disabled(isGenerating)
     }
@@ -494,7 +568,7 @@ struct AnalyzeView: View {
                 .foregroundColor(AppTheme.danger)
             Text(message)
                 .font(.system(size: 13))
-                .foregroundColor(.white.opacity(0.85))
+                .foregroundColor(AppTheme.text.opacity(0.85))
             Spacer()
         }
         .padding(14)
@@ -524,19 +598,18 @@ struct AnalyzeView: View {
                 VStack(alignment: .leading, spacing: 1) {
                     Text("Generated Reply")
                         .font(.system(size: 14, weight: .semibold))
-                        .foregroundColor(.white)
+                        .foregroundColor(AppTheme.text)
                     Text(selectedChannel.rawValue)
                         .font(.system(size: 11))
                         .foregroundColor(AppTheme.accent)
                 }
                 Spacer()
-                // Character count
                 Text("\(reply.count) chars")
                     .font(.system(size: 10, weight: .medium))
                     .foregroundColor(AppTheme.subtext.opacity(0.7))
                     .padding(.horizontal, 8)
                     .padding(.vertical, 4)
-                    .background(.white.opacity(0.05))
+                    .background(AppTheme.accent.opacity(0.05))
                     .clipShape(Capsule())
             }
             .padding(.horizontal, 16)
@@ -548,17 +621,21 @@ struct AnalyzeView: View {
                 )
             )
 
-            Divider().background(.white.opacity(0.06))
+            Rectangle()
+                .fill(AppTheme.surfaceBorder)
+                .frame(height: 1)
 
             // Reply text
             Text(reply)
                 .font(.system(size: 14))
-                .foregroundColor(.white.opacity(0.9))
+                .foregroundColor(AppTheme.text.opacity(0.9))
                 .lineSpacing(5)
                 .textSelection(.enabled)
                 .padding(16)
 
-            Divider().background(.white.opacity(0.06))
+            Rectangle()
+                .fill(AppTheme.surfaceBorder)
+                .frame(height: 1)
 
             // Action row
             HStack(spacing: 10) {
@@ -580,7 +657,7 @@ struct AnalyzeView: View {
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 12)
                     .background(replyCopied ? Color.green.opacity(0.85) : AppTheme.accent)
-                    .foregroundColor(.black)
+                    .foregroundColor(Color(red: 16/255, green: 34/255, blue: 34/255))
                     .clipShape(RoundedRectangle(cornerRadius: 11))
                 }
 
@@ -594,12 +671,12 @@ struct AnalyzeView: View {
                     }
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 12)
-                    .foregroundColor(.white)
-                    .background(.white.opacity(0.07))
+                    .foregroundColor(AppTheme.text)
+                    .background(AppTheme.accent.opacity(0.08))
                     .clipShape(RoundedRectangle(cornerRadius: 11))
                     .overlay(
                         RoundedRectangle(cornerRadius: 11)
-                            .strokeBorder(.white.opacity(0.1), lineWidth: 1)
+                            .strokeBorder(AppTheme.accent.opacity(0.15), lineWidth: 1)
                     )
                 }
                 .disabled(isGenerating)
@@ -607,31 +684,42 @@ struct AnalyzeView: View {
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
         }
-        .background(AppTheme.card)
+        .background(AppTheme.accent.opacity(0.05))
         .clipShape(RoundedRectangle(cornerRadius: 18))
         .overlay(
             RoundedRectangle(cornerRadius: 18)
-                .strokeBorder(AppTheme.accent.opacity(0.18), lineWidth: 1)
+                .strokeBorder(AppTheme.accent.opacity(0.15), lineWidth: 1)
         )
         .shadow(color: AppTheme.accent.opacity(0.06), radius: 20, y: 6)
         .transition(.opacity.combined(with: .move(edge: .bottom)))
     }
 
-    // MARK: - Photo loading
-    private func loadPhoto(from item: PhotosPickerItem?) {
-        guard let item else { return }
-        item.loadTransferable(type: Data.self) { result in
-            DispatchQueue.main.async {
-                if case .success(let data) = result, let data, let uiImage = UIImage(data: data) {
-                    withAnimation { selectedImage = uiImage }
+    // MARK: - Photo loading (multiple)
+    private func loadPhotos(from items: [PhotosPickerItem]) {
+        guard !items.isEmpty else { return }
+        Task {
+            var loaded: [UIImage] = []
+            for item in items.prefix(5) {
+                if let data = try? await item.loadTransferable(type: Data.self),
+                   let uiImage = UIImage(data: data) {
+                    loaded.append(uiImage)
+                }
+            }
+            await MainActor.run {
+                withAnimation {
+                    selectedImages = loaded
+                    if !loaded.isEmpty {
+                        generatedReply = nil
+                        errorMessage   = nil
+                    }
                 }
             }
         }
     }
 
-    // MARK: - Generate reply via backend proxy → OpenAI Vision
+    // MARK: - Generate reply via backend proxy
     private func generateReply() {
-        guard let image = selectedImage else { return }
+        guard !selectedImages.isEmpty else { return }
         guard let userToken = APIService.shared.token, !userToken.isEmpty else {
             withAnimation { errorMessage = "Please sign in to use this feature." }
             return
@@ -642,30 +730,28 @@ struct AnalyzeView: View {
             errorMessage = nil
         }
 
-        // Convert image to base64
-        guard let imageData = image.jpegData(compressionQuality: 0.6) else {
-            withAnimation {
-                isGenerating = false
-                errorMessage = "Failed to process image."
-            }
+        // Build base64 list for all selected images
+        var imageBase64List: [String] = []
+        for img in selectedImages {
+            guard let data = img.jpegData(compressionQuality: 0.6) else { continue }
+            imageBase64List.append(data.base64EncodedString())
+        }
+        guard !imageBase64List.isEmpty else {
+            withAnimation { isGenerating = false; errorMessage = "Failed to process images." }
             return
         }
-        let base64 = imageData.base64EncodedString()
 
-        // Capture values needed
         let channel = selectedChannel
         let contextNote = context.trimmingCharacters(in: .whitespacesAndNewlines)
 
-        // Use cached config
         let config = RemoteConfigService.shared.cached
         if let sc = config?.screenshotReply {
-            SayThisLog.api("✅ Using REMOTE config for Screenshot Reply [\(channel.rawValue)]")
+            SayThisLog.api("Using REMOTE config for Screenshot Reply [\(channel.rawValue)]")
             SayThisLog.api("  model=\(sc.model)  temp=\(sc.temperature)  maxTokens=\(sc.maxTokens)  detail=\(sc.imageDetail)")
         } else {
             SayThisLog.warn("Config unavailable — Screenshot Reply [\(channel.rawValue)] using HARDCODED fallback defaults")
         }
 
-        // Build channel-specific prompts
         let channelUserPrompt = channel.userPrompt(from: config)
         let userPromptText = contextNote.isEmpty
             ? channelUserPrompt
@@ -673,7 +759,6 @@ struct AnalyzeView: View {
 
         let sc = config?.screenshotReply
 
-        // Route through backend proxy — OpenAI key never leaves the server
         let base = APIService.shared.baseURL.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
         let endpoint = URL(string: "\(base)/api/ai/analyze")!
         var request = URLRequest(url: endpoint)
@@ -682,17 +767,25 @@ struct AnalyzeView: View {
         request.setValue("Bearer \(userToken)", forHTTPHeaderField: "Authorization")
         request.timeoutInterval = 90
 
+        // Build user content: text prompt + one entry per image
+        var userContent: [[String: Any]] = [
+            ["type": "text", "text": userPromptText]
+        ]
+        for b64 in imageBase64List {
+            userContent.append([
+                "type": "image_url",
+                "image_url": [
+                    "url": "data:image/jpeg;base64,\(b64)",
+                    "detail": sc?.imageDetail ?? "high"
+                ]
+            ])
+        }
+
         let body: [String: Any] = [
             "model": sc?.model ?? "gpt-4o",
             "messages": [
                 ["role": "system", "content": channel.systemPrompt(from: config)],
-                ["role": "user", "content": [
-                    ["type": "text", "text": userPromptText],
-                    ["type": "image_url", "image_url": [
-                        "url": "data:image/jpeg;base64,\(base64)",
-                        "detail": sc?.imageDetail ?? "high"
-                    ]]
-                ] as Any]
+                ["role": "user", "content": userContent as Any]
             ],
             "max_tokens": sc?.maxTokens ?? 800,
             "temperature": sc?.temperature ?? 0.7,
@@ -700,7 +793,7 @@ struct AnalyzeView: View {
         ]
         request.httpBody = try? JSONSerialization.data(withJSONObject: body)
 
-        SayThisLog.api("Sending Screenshot Reply to backend…")
+        SayThisLog.api("Sending Screenshot Reply to backend...")
         URLSession.shared.dataTask(with: request) { data, response, error in
             DispatchQueue.main.async { [self] in
                 isGenerating = false
@@ -739,7 +832,7 @@ struct AnalyzeView: View {
 
                 if let decoded = try? JSONDecoder().decode(VisionResponse.self, from: data),
                    let content = decoded.choices.first?.message.content {
-                    SayThisLog.api("✅ Screenshot Reply success — \(content.count) chars")
+                    SayThisLog.api("Screenshot Reply success — \(content.count) chars")
                     withAnimation(.easeInOut(duration: 0.3)) {
                         generatedReply = content.trimmingCharacters(in: .whitespacesAndNewlines)
                     }
@@ -752,7 +845,7 @@ struct AnalyzeView: View {
     }
 }
 
-// MARK: - Channel Pill
+// MARK: - Channel Pill (updated for new design)
 struct ChannelPill: View {
     let channel: ResponseChannel
     let isSelected: Bool
@@ -770,15 +863,15 @@ struct ChannelPill: View {
             .padding(.vertical, 10)
             .background(
                 isSelected
-                    ? AppTheme.accent.opacity(0.14)
-                    : AppTheme.card
+                    ? AppTheme.accent.opacity(0.12)
+                    : AppTheme.accent.opacity(0.05)
             )
             .foregroundColor(isSelected ? AppTheme.accent : AppTheme.subtext)
             .clipShape(Capsule())
             .overlay(
                 Capsule()
                     .strokeBorder(
-                        isSelected ? AppTheme.accent.opacity(0.45) : Color.white.opacity(0.07),
+                        isSelected ? AppTheme.accent.opacity(0.40) : AppTheme.accent.opacity(0.10),
                         lineWidth: 1
                     )
             )
